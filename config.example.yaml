@@ -1,0 +1,4 @@
+DEFAULT_AUTHOR: "你的默认作者名" # 例如：以德富人
+wechat:
+  app_id: "你的APP_ID" # 从微信公众号平台获取
+  app_secret: "你的APP_SECRET" # 从微信公众号平台获取

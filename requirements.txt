@@ -1,0 +1,8 @@
+markdown
+PyYAML
+requests
+beautifulsoup4
+lxml
+PyQt5
+PyQtWebEngine
+Pillow

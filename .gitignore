@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.log
+
+# Project-specific generated files and sensitive data
+config.yaml
+logs/
+data/
+access_token.json
+temp_images/
+橙红.html
+极客黑.html
+蓝莹.html
+默认.html
+
+# Virtual environment
+.venv/
+env/
+venv/
