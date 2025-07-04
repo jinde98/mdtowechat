@@ -4,16 +4,16 @@ from PyQt5.QtCore import Qt
 
 class StatusDialog(QDialog):
     """一个简单的对话框，用于显示操作状态（如“处理中”、“成功”、“失败”）。"""
-    def __init__(self, parent=None):
+    def __init__(self, title="操作状态", parent=None):
         super().__init__(parent)
-        self.setWindowTitle("发布状态")
-        self.setMinimumWidth(350)
+        self.setWindowTitle(title) # 设置窗口标题。
+        self.setMinimumWidth(350) # 设置最小宽度。
         # 设置为模态对话框，但在显示后需要立即处理事件以避免UI冻结
-        self.setModal(True) 
+        self.setModal(True)
 
         self.layout = QVBoxLayout(self)
         
-        self.message_label = QLabel("正在发布，请稍候...")
+        self.message_label = QLabel("正在处理，请稍候...")
         self.message_label.setAlignment(Qt.AlignCenter)
         self.message_label.setWordWrap(True)
         self.layout.addWidget(self.message_label)
@@ -28,6 +28,6 @@ class StatusDialog(QDialog):
         """
         self.message_label.setText(message)
         if is_finished:
-            self.setWindowTitle("发布完成")
+            self.setWindowTitle("操作完成")
             close_button = self.button_box.addButton(QDialogButtonBox.Close)
             close_button.clicked.connect(self.accept)

@@ -1,10 +1,11 @@
 import os
 import datetime
 import shutil
-import re # 导入re模块
+import re
 
 class StorageManager:
-    def __init__(self, base_dir="data"):
+    """负责管理文件的存储和清理，包括Markdown文件、HTML存档和临时图片。"""
+    def __init__(self, base_dir="data"): # 初始化存储管理器，创建基础目录。
         self.base_dir = base_dir
         os.makedirs(self.base_dir, exist_ok=True)
 
@@ -72,7 +73,7 @@ class StorageManager:
                         print(f"Deleting old directory: {full_path}")
                         shutil.rmtree(full_path)
                 except ValueError:
-                    # Ignore directories that don't match the date format
+                    # 忽略不符合日期格式的目录。
                     pass
 
 # 移除旧的 save_article 方法，或将其重命名为 save_full_article_archive

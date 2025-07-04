@@ -1,7 +1,8 @@
 import os
 
 class TemplateManager:
-    def __init__(self, template_dir="templates"):
+    """负责管理Markdown模板文件（头部和尾部）。"""
+    def __init__(self, template_dir="templates"): # 初始化模板管理器，设置模板文件路径。
         self.template_dir = template_dir
         self.header_path = os.path.join(self.template_dir, "header.md")
         self.footer_path = os.path.join(self.template_dir, "footer.md")
@@ -29,7 +30,7 @@ class TemplateManager:
                 footer_content = f.read()
             return header_content, footer_content
         except Exception as e:
-            print(f"Error reading template files: {e}")
+            print(f"Error reading template files: {e}") # 打印读取模板文件时的错误信息。
             return "", ""
 
     def save_templates(self, header_content, footer_content):
@@ -46,7 +47,7 @@ class TemplateManager:
                 f.write(footer_content)
             return True, None
         except Exception as e:
-            print(f"Error saving template files: {e}")
+            print(f"Error saving template files: {e}") # 打印保存模板文件时的错误信息。
             return False, str(e)
 
 if __name__ == '__main__':

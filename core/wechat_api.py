@@ -3,19 +3,20 @@ import requests
 import time
 import yaml
 import logging
-import json # 确保导入json模块
+import json
 import hashlib
 from bs4 import BeautifulSoup
 from PIL import Image
 
 class WeChatAPI:
-    def __init__(self, config_path="config.yaml"):
+    """负责与微信公众号API进行交互，包括获取Access Token、上传图片、创建图文草稿等。"""
+    def __init__(self, config_path="config.yaml"): # 初始化微信API客户端。
         self.log = logging.getLogger("MdToWeChat")
         self.config_path = config_path
-        self.access_token = None
-        self.access_token_cache_file = "access_token.json"
+        self.access_token = None # 存储Access Token。
+        self.access_token_cache_file = "access_token.json" # Access Token缓存文件路径。
 
-        try:
+        try: # 尝试加载配置文件，处理文件未找到或解析错误。
             self.config = self._load_config()
         except FileNotFoundError as e:
             self.log.critical(f"Config file not found: {e}")
@@ -24,16 +25,16 @@ class WeChatAPI:
             self.log.critical(f"Config file parsing error: {e}")
             raise
             
-        if not isinstance(self.config, dict):
+        if not isinstance(self.config, dict): # 验证配置文件格式。
             raise ValueError("配置文件解析失败，请检查YAML格式")
             
-        self.wechat_config = self.config.get("wechat", {})
+        self.wechat_config = self.config.get("wechat", {}) # 从配置中获取微信相关设置。
         self.app_id = self.wechat_config.get("app_id")
         self.app_secret = self.wechat_config.get("app_secret")
-        self.default_author = self.config.get("DEFAULT_AUTHOR", "匿名")
-        self.default_cover_media_id = self.config.get("DEFAULT_COVER_MEDIA_ID")
+        self.default_author = self.wechat_config.get("default_author", "匿名") # 获取默认作者。
+        self.default_cover_media_id = self.config.get("DEFAULT_COVER_MEDIA_ID") # 获取默认封面素材ID。
 
-        if not self.app_id or not self.app_secret:
+        if not self.app_id or not self.app_secret: # 检查AppID和AppSecret是否配置。
             raise ValueError("""
                 WECHAT_APP_ID和WECHAT_APP_SECRET必须在config.yaml中设置
                 示例格式：

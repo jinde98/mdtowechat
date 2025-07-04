@@ -21,20 +21,20 @@ class PublishDialog(QDialog):
             self._select_article_in_dialog(0)
 
     def _init_ui(self):
-        main_layout = QHBoxLayout(self)
+        main_layout = QHBoxLayout(self) # 初始化UI布局。
 
-        left_panel_layout = QVBoxLayout()
+        left_panel_layout = QVBoxLayout() # 左侧面板布局。
         left_panel_layout.addWidget(QLabel("文章列表："))
         self.article_list_widget = QListWidget()
         self.article_list_widget.currentRowChanged.connect(self._select_article_in_dialog)
         left_panel_layout.addWidget(self.article_list_widget)
         main_layout.addLayout(left_panel_layout, 1)
 
-        right_panel_layout = QVBoxLayout()
+        right_panel_layout = QVBoxLayout() # 右侧面板布局。
         self.stacked_widget = QStackedWidget()
         right_panel_layout.addWidget(self.stacked_widget)
 
-        info_label = QLabel("此功能直接调用微信官方接口进行发布。")
+        info_label = QLabel("此功能直接调用微信官方接口进行发布。") # 信息提示标签。
         info_label.setStyleSheet("background-color: #f0f0f0; padding: 8px; border-radius: 4px; color: #666;")
         info_label.setWordWrap(True)
         right_panel_layout.addWidget(info_label)
@@ -43,8 +43,8 @@ class PublishDialog(QDialog):
         publish_btn = button_box.button(QDialogButtonBox.Ok)
         cancel_btn = button_box.button(QDialogButtonBox.Cancel)
         
-        publish_btn.setText("发布")
-        cancel_btn.setText("取消")
+        publish_btn.setText("发布") # 设置发布按钮文本。
+        cancel_btn.setText("取消") # 设置取消按钮文本。
 
         # 增大按钮尺寸
         publish_btn.setFixedSize(100, 40)
@@ -64,7 +64,7 @@ class PublishDialog(QDialog):
         self.setLayout(main_layout)
 
     def _populate_article_list(self):
-        self.article_list_widget.blockSignals(True)
+        self.article_list_widget.blockSignals(True) # 填充文章列表。
         self.article_list_widget.clear()
         for i, article_data in enumerate(self.all_articles_data):
             list_item = QListWidgetItem(f"{i+1}. {article_data.get('title', '无标题')}")
@@ -73,11 +73,11 @@ class PublishDialog(QDialog):
         self.article_list_widget.blockSignals(False)
 
     def _create_article_detail_page(self, article_data, index):
-        page_widget = QWidget()
+        page_widget = QWidget() # 为每篇文章创建详细信息页面。
         page_layout = QVBoxLayout(page_widget)
 
         # Title
-        title_layout = QHBoxLayout()
+        title_layout = QHBoxLayout() # 标题输入框布局。
         title_layout.addWidget(QLabel("标题:"))
         title_edit = QLineEdit(article_data.get("title", "无标题"))
         title_edit.textChanged.connect(lambda text, idx=index: self._update_article_data(idx, 'title', text))
@@ -85,35 +85,37 @@ class PublishDialog(QDialog):
         page_layout.addLayout(title_layout)
 
         # Author
-        author_layout = QHBoxLayout()
+        author_layout = QHBoxLayout() # 作者输入框布局。
         author_layout.addWidget(QLabel("作者:"))
-        author_edit = QLineEdit(article_data.get("author", "匿名"))
+        # 确保从传递过来的数据中获取作者信息
+        author_text = article_data.get("author") or "匿名"
+        author_edit = QLineEdit(author_text)
         author_edit.textChanged.connect(lambda text, idx=index: self._update_article_data(idx, 'author', text))
         author_layout.addWidget(author_edit)
         page_layout.addLayout(author_layout)
 
         # Cover Image
-        cover_layout = QHBoxLayout()
+        cover_layout = QHBoxLayout() # 封面图选择布局。
         cover_layout.addWidget(QLabel("封面图:"))
-        cover_edit = QLineEdit(article_data.get("cover_image", "未找到图片，将使用默认封面"))
+        cover_edit = QLineEdit(article_data.get("cover_image", "未找到图片，将使用默认封面")) # 封面图路径编辑框。
         cover_layout.addWidget(cover_edit)
         cover_button = QPushButton("选择文件")
-        # Pass both index and the QLineEdit to the slot
+        # 将索引和QLineEdit对象传递给槽函数。
         cover_button.clicked.connect(lambda _, idx=index, edit=cover_edit: self._select_cover_image(idx, edit))
         cover_layout.addWidget(cover_button)
         page_layout.addLayout(cover_layout)
 
         # Digest (formerly description)
-        digest_layout = QVBoxLayout()
+        digest_layout = QVBoxLayout() # 摘要输入框布局。
         digest_layout.addWidget(QLabel("摘要 (100字以内):"))
-        digest_edit = QTextEdit(article_data.get("description", ""))
+        digest_edit = QTextEdit(article_data.get("digest", ""))
         digest_edit.setPlaceholderText("自动从正文第一段提取，或手动填写")
         digest_edit.textChanged.connect(lambda idx=index: self._update_article_data(idx, 'digest', digest_edit.toPlainText()))
         digest_layout.addWidget(digest_edit)
         page_layout.addLayout(digest_layout)
 
         # Content Source URL
-        source_url_layout = QHBoxLayout()
+        source_url_layout = QHBoxLayout() # 原文链接输入框布局。
         source_url_layout.addWidget(QLabel("原文链接:"))
         source_url_edit = QLineEdit(article_data.get("content_source_url", ""))
         source_url_edit.setPlaceholderText("选填，文章的“阅读原文”链接")
@@ -127,18 +129,18 @@ class PublishDialog(QDialog):
     def _update_article_data(self, index, key, value):
         if 0 <= index < len(self.all_articles_data):
             self.all_articles_data[index][key] = value
-            if key == 'title': # Also update the list widget item
+            if key == 'title': # 如果是标题更新，则同时更新文章列表项。
                 self.article_list_widget.item(index).setText(f"{index+1}. {value}")
 
 
     def _select_cover_image(self, index, cover_edit_widget):
-        file_path, _ = QFileDialog.getOpenFileName(self, "选择封面图片", "", "图片文件 (*.png *.jpg *.jpeg *.gif)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "选择封面图片", "", "图片文件 (*.png *.jpg *.jpeg *.gif)") # 弹出文件选择对话框，让用户选择封面图片。
         if file_path:
             cover_edit_widget.setText(file_path)
             self._update_article_data(index, 'cover_image', file_path)
 
     def _select_article_in_dialog(self, index):
-        if 0 <= index < self.stacked_widget.count():
+        if 0 <= index < self.stacked_widget.count(): # 在对话框中选择文章并显示其详细信息页面。
             self.current_article_index = index
             self.stacked_widget.setCurrentIndex(index)
 

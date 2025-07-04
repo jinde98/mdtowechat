@@ -16,6 +16,7 @@ THEMES = {
 }
 
 class MarkdownRenderer:
+    """负责将Markdown渲染为微信公众号兼容的HTML，并应用主题样式。"""
     def __init__(self, theme_name="blue"):
         self.theme = self._load_theme(theme_name)
         self.md = markdown.Markdown(
@@ -49,7 +50,7 @@ class MarkdownRenderer:
         """加载指定主题的CSS样式。"""
         theme = THEMES.get(theme_name.lower())
         if not theme:
-            print(f"Warning: Theme '{theme_name}' not found. Using default 'blue' theme.")
+            print(f"Warning: Theme '{theme_name}' not found. Using default 'blue' theme.") # 如果主题不存在，则使用默认的“blue”主题并打印警告。
             theme = BLUE
         return theme
 
@@ -125,6 +126,14 @@ class MarkdownRenderer:
                 existing_style = elem.get('style', '')
                 # 强制覆盖颜色，确保模式切换生效
                 elem['style'] = f"color: {body_text_color}; {style}; {existing_style}".strip()
+
+        # 显式处理 img 标签的样式，确保其 max-width 等属性被应用
+        if 'img' in self.theme:
+            img_style = self.theme['img']
+            for img_elem in soup.find_all('img'):
+                existing_style = img_elem.get('style', '')
+                # 将主题中定义的 img 样式应用到元素上
+                img_elem['style'] = f"{img_style}; {existing_style}".strip()
 
         # 对所有顶级块元素应用section样式
         body_content = soup.body.find('div') if 'wrapper' in self.theme else soup.body
@@ -209,48 +218,7 @@ class MarkdownRenderer:
             if not list_tag.find_parent(['ul', 'ol']):
                 style_list_items(list_tag, 0)
     
-    def _apply_theme_styles(self, soup, mode):
-        """
-        根据当前主题和模式应用CSS样式到HTML元素。
-        :param soup: BeautifulSoup对象
-        :param mode: 当前模式（"light"或"dark"）
-        """
-        # 应用body和wrapper样式
-        body_style = self.theme.get('body', '')
-        if mode == "dark":
-            # 强制设置body的背景和字体颜色为深色模式
-            body_style = f"background-color: #2e2e2e; color: #f0f0f0; {body_style}"
-        else:
-            # 强制设置body的背景和字体颜色为亮色模式
-            body_style = f"background-color: #ffffff; color: #333333; {body_style}"
-        soup.body['style'] = body_style.strip()
-
-        if 'wrapper' in self.theme:
-            wrapper_div = soup.new_tag('div')
-            wrapper_div['style'] = self.theme['wrapper']
-            for child in list(soup.body.children):
-                wrapper_div.append(child)
-            soup.body.append(wrapper_div)
-
-        # 遍历所有元素并应用样式
-        for tag_name, style in self.theme.items():
-            # 列表由_process_lists处理，跳过
-            if tag_name in ['body', 'wrapper', 'section', 'ul', 'ol', 'li']:
-                continue
-
-            for elem in soup.find_all(tag_name):
-                existing_style = elem.get('style', '')
-                elem['style'] = f"{style}; {existing_style}".strip()
-
-        # 对所有顶级块元素应用section样式
-        body_content = soup.body.find('div') if 'wrapper' in self.theme else soup.body
-        if 'section' in self.theme:
-            for child in list(body_content.children):
-                if child.name and child.name not in ['style', 'script']:
-                    section_tag = soup.new_tag('section')
-                    section_tag['style'] = self.theme['section']
-                    child.wrap(section_tag)
-
+    # 删除重复的 _apply_theme_styles 方法
     def _filter_unsupported_elements(self, soup):
         """
         过滤微信公众号不支持的HTML标签和属性。

@@ -7,8 +7,8 @@ def setup_logger():
     """
     配置全局日志记录器。
     """
-    log_dir = "logs"
-    if not os.path.exists(log_dir):
+    log_dir = "logs" # 日志文件存放目录。
+    if not os.path.exists(log_dir): # 如果日志目录不存在，则创建。
         os.makedirs(log_dir)
 
     # 创建一个主记录器

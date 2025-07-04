@@ -10,8 +10,8 @@ def create_default_config(config_path="config.yaml"):
     """
     创建默认的config.yaml文件，如果它不存在的话。
     """
-    log = logging.getLogger("MdToWeChat")
-    if not os.path.exists(config_path):
+    log = logging.getLogger("MdToWeChat") # 获取日志记录器实例。
+    if not os.path.exists(config_path): # 如果配置文件不存在，则创建默认配置。
         default_config = {
             "DEFAULT_AUTHOR": "你的默认作者",
             "wechat": {
@@ -22,18 +22,18 @@ def create_default_config(config_path="config.yaml"):
             "STORAGE_DAYS_TO_KEEP": 30
         }
         try:
-            with open(config_path, "w", encoding="utf-8") as f:
+            with open(config_path, "w", encoding="utf-8") as f: # 允许写入Unicode字符。
                 yaml.safe_dump(default_config, f, allow_unicode=True)
-            log.info(f"Created default config.yaml at {config_path}")
+            log.info(f"Created default config.yaml at {config_path}") # 记录默认配置文件创建成功信息。
         except Exception as e:
-            log.error(f"Error creating default config.yaml: {e}")
+            log.error(f"Error creating default config.yaml: {e}") # 记录创建默认配置文件失败信息。
 
-if __name__ == "__main__":
+if __name__ == "__main__": # 程序入口。
     # 首先设置日志记录器
     log = setup_logger()
     
     try:
-        log.info("Application starting...")
+        log.info("Application starting...") # 记录应用启动信息。
         # 将项目根目录添加到sys.path，以便正确导入模块
         project_root = os.path.dirname(os.path.abspath(__file__))
         if project_root not in sys.path:
@@ -57,8 +57,8 @@ if __name__ == "__main__":
 
         main_window = MainWindow()
         main_window.show()
-        log.info("MainWindow shown. Entering main event loop.")
+        log.info("MainWindow shown. Entering main event loop.") # 记录主窗口显示信息，进入主事件循环。
         sys.exit(app.exec_())
     except Exception as e:
-        log.critical(f"Unhandled exception occurred: {e}", exc_info=True)
+        log.critical(f"Unhandled exception occurred: {e}", exc_info=True) # 记录未处理的异常信息。
         sys.exit(1)

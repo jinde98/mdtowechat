@@ -18,8 +18,7 @@ class PastingImageEditor(QTextEdit):
     def insertFromMimeData(self, source):
         """重写粘贴逻辑，处理图片数据。"""
         if source.hasImage():
-            # 注意：为了简单起见，这里同步执行。
-            # 在实际生产环境中，为避免UI冻结，应使用QThread执行网络操作。
+            # 注意：为了简化，此处同步执行图片上传。在生产环境中，为避免UI阻塞，建议使用QThread进行异步操作。
             self.paste_image(source.imageData())
         else:
             super().insertFromMimeData(source)

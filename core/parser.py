@@ -2,6 +2,9 @@ import re
 import os
 
 class ContentParser:
+    """
+    负责解析Markdown内容，提取文章元数据（如标题、作者、图片等）。
+    """
     def __init__(self):
         pass
 
@@ -40,7 +43,7 @@ class ContentParser:
         if match:
             # 移除标题内容中可能存在的Markdown格式
             clean_title = self._remove_markdown_formatting(match.group(1))
-            clean_title = self._remove_emoji(clean_title)
+            # clean_title = self._remove_emoji(clean_title) # 暂时注释掉，测试是否影响中文字符
             return clean_title.strip()
         return None
 
@@ -116,14 +119,14 @@ class ContentParser:
         """
         从文本中移除Emoji字符。
         """
-        if not text:
+        if not text: # 如果文本为空，直接返回空字符串。
             return ""
         emoji_pattern = re.compile(
             "["
-            "\U0001F600-\U0001F64F"  # emoticons
-            "\U0001F300-\U0001F5FF"  # symbols & pictographs
-            "\U0001F680-\U0001F6FF"  # transport & map symbols
-            "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+            "\U0001F600-\U0001F64F"  # 表情符号
+            "\U0001F300-\U0001F5FF"  # 符号和象形文字
+            "\U0001F680-\U0001F6FF"  # 交通和地图符号
+            "\U0001F1E0-\U0001F1FF"  # 旗帜 (iOS)
             "\U00002702-\U000027B0"
             "\U000024C2-\U0001F251"
             "]+", flags=re.UNICODE)
@@ -149,13 +152,13 @@ if __name__ == '__main__':
     parser = ContentParser()
     parsed_data = parser.parse_markdown(markdown_test_content)
 
-    print(f"标题: {parsed_data['title']}")
-    print(f"作者: {parsed_data['author']}")
-    print(f"描述: {parsed_data['description']}")
-    print(f"封面图片: {parsed_data['cover_image']}")
-    print(f"所有图片URL: {parsed_data['all_image_urls']}")
-    print(f"本地图片路径: {parsed_data['local_image_paths']}")
-    print(f"微信图片URL: {parsed_data['wechat_image_urls']}")
+    print(f"标题: {parsed_data['title']}") # 打印提取到的标题
+    print(f"作者: {parsed_data['author']}") # 打印提取到的作者
+    print(f"描述: {parsed_data['description']}") # 打印提取到的描述
+    print(f"封面图片: {parsed_data['cover_image']}") # 打印提取到的封面图片
+    print(f"所有图片URL: {parsed_data['all_image_urls']}") # 打印所有图片URL
+    print(f"本地图片路径: {parsed_data['local_image_paths']}") # 打印本地图片路径
+    print(f"微信图片URL: {parsed_data['wechat_image_urls']}") # 打印微信图片URL
 
     markdown_no_metadata = """
 ## 另一个文章
@@ -164,7 +167,7 @@ if __name__ == '__main__':
 ![无元数据图片](local_img.jpg)
 """
     parsed_no_metadata = parser.parse_markdown(markdown_no_metadata)
-    print(f"\n无元数据标题: {parsed_no_metadata['title']}")
-    print(f"无元数据作者: {parsed_no_metadata['author']}")
-    print(f"无元数据本地图片路径: {parsed_no_metadata['local_image_paths']}")
-    print(f"无元数据所有图片URL: {parsed_no_metadata['all_image_urls']}")
+    print(f"\n无元数据标题: {parsed_no_metadata['title']}") # 打印无元数据文章的标题
+    print(f"无元数据作者: {parsed_no_metadata['author']}") # 打印无元数据文章的作者
+    print(f"无元数据本地图片路径: {parsed_no_metadata['local_image_paths']}") # 打印无元数据文章的本地图片路径
+    print(f"无元数据所有图片URL: {parsed_no_metadata['all_image_urls']}") # 打印无元数据文章的所有图片URL

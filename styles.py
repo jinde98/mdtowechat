@@ -23,7 +23,7 @@ BLUE = {
     'code_inline': 'background: rgba(27, 31, 35, 0.05); color: rgb(221, 17, 68); padding: 3px 5px; border-radius: 4px; font-size: 15.3px;',
     'pre': 'background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 8px; margin: 1em 8px; box-shadow: rgba(0, 0, 0, 0.05) 0px 0px 10px 0px inset; overflow: auto; padding: 1em;',
     'code_block': 'display: -webkit-box; overflow-x: auto; text-indent: 0; font-family: "Fira Code", Menlo, "Operator Mono", Consolas, Monaco, monospace; color: #c9d1d9;',
-    'img': 'display: block; max-width: 100%; height: auto; margin: 1em auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);',
+    'img': 'display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);',
     'figcaption': 'text-align: center; font-size: 0.8em; color: #888;',
     'strong': 'color: #0F4C81; font-weight: bold;',
 }
@@ -52,7 +52,7 @@ NICE = {
     'th': 'border: 1px solid #ccc; padding: 0.5em 1em; text-align: left; background-color: #f0f0f0; font-weight: bold;',
     'td': 'border: 1px solid #ccc; padding: 0.5em 1em; text-align: left;',
     'strong': 'font-weight: bold;',
-    'img': 'display: block; max-width: 100%; height: auto; margin: 1em auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);', # 新增图片样式
+    'img': 'display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);', # 新增图片样式
     'pre': 'background: #f6f8fa; border: 1px solid #eaeaea; border-radius: 6px; padding: 1em; margin: 1em 0; overflow: auto;',
     'code_block': 'font-family: "Fira Code", Menlo, "Operator Mono", Consolas, Monaco, monospace; color: #24292e; font-size: 0.9em;',
 }
@@ -84,7 +84,7 @@ GREEN = {
     'pre': 'background: #f6f8fa; border: 1px solid #eaeaea; border-radius: 6px; padding: 1em; margin: 1em 0; overflow: auto;',
     'code_block': 'font-family: "Fira Code", Menlo, "Operator Mono", Consolas, Monaco, monospace; color: #24292e; font-size: 0.9em;',
     'a': "color: #40B8FA; font-weight: normal; border-bottom: 1px solid #3BAAFA;",
-    'img': 'display: block; max-width: 100%; height: auto; margin: 1em auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);',
+    'img': 'display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);',
     'figcaption': "display: block; font-size: 14px; color: #2b2b2b;",
 }
 
@@ -114,7 +114,7 @@ GEEK_BLACK = {
     'td': 'font-size: 16px; border: 1px solid #ccc; padding: 5px 10px;',
     'pre': 'background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 1em; margin: 1em 0; overflow: auto;',
     'code_block': 'font-family: "Fira Code", Menlo, "Operator Mono", Consolas, Monaco, monospace; color: #c9d1d9; font-size: 0.9em;',
-    'img': 'display: block; max-width: 100%; height: auto; margin: 1em auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);',
+    'img': 'display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);',
     'figcaption': 'margin-top: 5px; text-align: center; color: #888; font-size: 14px;',
     'footnote-word': 'font-weight: bold; color: #ff3502;',
     'footnote-ref': 'line-height: 0; font-weight: bold; color: rgb(239, 112, 96);',
@@ -155,7 +155,7 @@ ORANGE_RED = {
     'td': 'font-size: 16px; border: 1px solid #ccc; padding: 5px 10px;',
     'pre': 'background: #f6f8fa; border: 1px solid #eaeaea; border-radius: 6px; padding: 1em; margin: 1em 0; overflow: auto;',
     'code_block': 'font-family: "Fira Code", Menlo, "Operator Mono", Consolas, Monaco, monospace; color: #24292e; font-size: 0.9em;',
-    'img': 'display: block; max-width: 100%; height: auto; margin: 1em auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);',
+    'img': 'display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);',
     'figcaption': 'margin-top: 5px; text-align: center; color: #888; font-size: 14px;',
     'footnote-word': 'font-weight: bold; color: #ff3502;',
     'footnote-ref': 'line-height: 0; font-weight: bold; color: rgb(239, 112, 96);',
@@ -192,7 +192,7 @@ BLUE_GLOW = {
     'h5': 'margin-top: 30px; margin-bottom: 15px; font-weight: normal; font-size: 1.3em; text-align: center; background: hsl(216, 100%, 68%); border: 3px double #fff; width: 80%; padding: 10px; margin: 30px auto; color: #fff;',
     'h6': 'margin-top: 30px; margin-bottom: 15px; font-size: 1.5em; font-weight: normal; color: hsl(216, 100%, 68%); border-bottom: 1px solid hsl(216, 100%, 68%);',
     'em': 'font-style: normal; font-weight: normal; color: white; background: hsl(244, 100%, 75%); padding: 2px 4px; margin: 0px 2px;',
-    'img': 'display: block; max-width: 100%; height: auto; margin: 1em auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);',
+    'img': 'display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);',
     'figcaption': 'margin-top: 5px; text-align: center; color: #888; font-size: 14px;',
     'hr': 'height: 1px; margin-top: 10px; margin-bottom: 10px; border: none; width: 90%; margin: 1.5em auto; border-top: 2px dashed hsl(216, 100%, 68%);',
     'table': 'display: table; text-align: left; margin: 1.5em auto; width: auto;',

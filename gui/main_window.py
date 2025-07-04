@@ -22,7 +22,10 @@ from gui.template_editor import TemplateEditorDialog
 from core.template_manager import TemplateManager
 from gui.status_dialog import StatusDialog
 from gui.settings_dialog import SettingsDialog
+from gui.crawl_dialog import CrawlDialog
 from PyQt5.QtWidgets import QDialog, QMessageBox
+from core.crawler import Crawler
+from core.llm import LLMProcessor
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -88,6 +91,12 @@ class MainWindow(QMainWindow):
         add_article_btn.setFixedSize(QSize(85, 35)) # Larger size
         add_article_btn.setToolTip("新增一篇文章")
         add_article_btn.clicked.connect(self._add_article)
+
+        crawl_article_btn = QPushButton(" 抓取文章")
+        crawl_article_btn.setIcon(QIcon.fromTheme("web-browser"))
+        crawl_article_btn.setFixedSize(QSize(85, 35))
+        crawl_article_btn.setToolTip("从网页抓取内容生成文章")
+        crawl_article_btn.clicked.connect(self._crawl_article)
         
         remove_article_btn = QPushButton(" 删除文章")
         remove_article_btn.setIcon(QIcon.fromTheme("list-remove"))
@@ -96,6 +105,7 @@ class MainWindow(QMainWindow):
         remove_article_btn.clicked.connect(self._remove_article)
 
         article_action_layout.addWidget(add_article_btn)
+        article_action_layout.addWidget(crawl_article_btn)
         article_action_layout.addWidget(remove_article_btn)
         left_layout.addLayout(article_action_layout)
 
@@ -273,6 +283,54 @@ class MainWindow(QMainWindow):
         self.current_article_index = len(self.articles) - 1
         self._refresh_article_list()
         self._load_article_content(self.current_article_index)
+
+    def _crawl_article(self):
+        """从网页抓取内容并生成新文章。"""
+        dialog = CrawlDialog(self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        url, system_prompt = dialog.get_data()
+        self.log.info(f"Starting crawl for url: {url}")
+
+        status_dialog = StatusDialog(title="文章生成中", parent=self)
+        status_dialog.show()
+        QApplication.processEvents()
+
+        try:
+            # 1. 抓取内容
+            status_dialog.update_status("正在从网页抓取内容...", is_finished=False)
+            crawler = Crawler()
+            markdown_content, error = crawler.fetch(url)
+            if error:
+                raise Exception(f"抓取失败: {error}")
+
+            # 2. 调用LLM处理
+            status_dialog.update_status("正在由AI处理内容...", is_finished=False)
+            llm_processor = LLMProcessor()
+            processed_content, error = llm_processor.process_content(markdown_content, system_prompt)
+            if error:
+                raise Exception(f"AI处理失败: {error}")
+
+            # 3. 创建新文章
+            title = self.parser.parse_markdown(processed_content).get('title', os.path.basename(url))
+            new_article = {
+                'title': title,
+                'content': processed_content,
+                'theme': 'default'
+            }
+            self.articles.append(new_article)
+            self.current_article_index = len(self.articles) - 1
+            self._refresh_article_list()
+            self._load_article_content(self.current_article_index)
+            
+            status_dialog.update_status("文章生成成功！", is_finished=True)
+            self.log.info(f"Successfully crawled and processed article from {url}")
+
+        except Exception as e:
+            self.log.error(f"Failed to crawl and process article: {e}", exc_info=True)
+            status_dialog.update_status(f"操作失败: {e}", is_finished=True)
+
 
     def _remove_article(self):
         """删除当前选中的文章。"""
@@ -495,7 +553,7 @@ class MainWindow(QMainWindow):
     def _execute_multi_article_publishing(self, all_articles_data):
         """执行多图文的上传和发布草稿逻辑"""
         
-        status_dialog = StatusDialog(self)
+        status_dialog = StatusDialog(title="发布到微信", parent=self)
         status_dialog.show()
         QApplication.processEvents()
 

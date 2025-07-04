@@ -1,2 +1,10 @@
 /* styles/default.css */
 /* 默认样式模板 */
+
+/* 使图片自适应容器宽度，并保持其宽高比 */
+img {
+    max-width: 100%;
+    height: auto;
+    display: block; /* 移除图片底部可能存在的空白 */
+    margin: 0 auto; /* 图片居中显示 */
+}

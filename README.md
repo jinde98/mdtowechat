@@ -8,6 +8,9 @@
 
 ## 2. 核心功能
 
+-   **AI智能创作**：
+    -   **网页抓取与AI重写**：输入一个网址，程序能自动抓取网页核心内容，并调用大语言模型（LLM）进行智能分析、排版和润色，一键生成高质量的公众号文章。
+    -   **高度可配置**：支持自定义AI模型的API Key、访问地址和System Prompt，让AI的输出更符合你的风格。
 -   **多图文创作**：支持在同一窗口下编辑和管理多篇文章，一键发布为多图文草稿。
 -   **Markdown实时预览**：左侧编写Markdown，右侧实时显示微信公众号兼容的HTML效果。
 -   **粘贴图片自动上传**：从剪贴板粘贴图片，可自动上传至微信图床并替换为Markdown链接，提供无缝的写作体验。
@@ -36,14 +39,18 @@
 │   ├── renderer.py        # Markdown到HTML的渲染引擎
 │   ├── storage.py         # 本地文章存储管理
 │   ├── template_manager.py# 页眉/页脚模板管理
-│   └── wechat_api.py      # 封装所有微信API的调用
+│   ├── wechat_api.py      # 封装所有微信API的调用
+│   ├── crawler.py         # 网页内容抓取模块
+│   └── llm.py             # 大语言模型交互模块
 │
 ├── gui/                   # 图形用户界面
 │   ├── editor.py          # 自定义编辑器(实现粘贴上传)
 │   ├── main_window.py     # 应用主窗口
 │   ├── publish_dialog.py  # 发布前确认对话框
 │   ├── status_dialog.py   # 发布状态对话框
-│   └── template_editor.py # 模板编辑器窗口
+│   ├── template_editor.py # 模板编辑器窗口
+│   ├── crawl_dialog.py    # 抓取文章对话框
+│   └── settings_dialog.py # 设置对话框
 │
 ├── styles/                # CSS样式文件
 │
@@ -78,13 +85,11 @@
     ```
 
 3.  **进行配置**
-    复制 `config.example.yaml` 为 `config.yaml`，并填入你的微信公众号的`app_id`和`app_secret`。
+    复制 `config.example.yaml` 为 `config.yaml`，并根据需要填入你的配置信息。
+    -   **微信配置**：`app_id`和`app_secret`是发布到公众号所必需的。
+    -   **AI配置（可选）**：如果你想使用网页抓取和AI重写功能，可以配置`jina`和`llm`部分。我们已提供默认可用的LLM配置，你可以直接使用或替换为你自己的。
+    
     **注意：`config.yaml` 包含了你的敏感信息，不应上传到公共仓库。我们已在 `.gitignore` 中将其忽略。**
-    ```yaml
-    wechat:
-      app_id: "你的APP_ID"
-      app_secret: "你的APP_SECRET"
-    ```
 
 4.  **运行程序**
     ```bash
