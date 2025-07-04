@@ -17,7 +17,7 @@ THEMES = {
 
 class MarkdownRenderer:
     """负责将Markdown渲染为微信公众号兼容的HTML，并应用主题样式。"""
-    def __init__(self, theme_name="blue"):
+    def __init__(self, theme_name="blue_glow"):
         self.theme = self._load_theme(theme_name)
         self.md = markdown.Markdown(
             extensions=[
@@ -31,6 +31,11 @@ class MarkdownRenderer:
                 'markdown.extensions.toc',
             ],
             extension_configs={
+                'markdown.extensions.codehilite': {
+                    'css_class': 'codehilite',
+                    'pygments_style': 'monokai',  # 指定高亮样式
+                    'noclasses': True, # 使用内联样式
+                },
                 'markdown.extensions.toc': {
                     'toc_depth': '2-3',  # 仅包含二级和三级标题
                 }
@@ -143,6 +148,61 @@ class MarkdownRenderer:
                     section_tag = soup.new_tag('section')
                     section_tag['style'] = self.theme['section']
                     child.wrap(section_tag)
+        
+        # 应用代码块的macOS样式
+        self._apply_mac_style_to_code_blocks(soup)
+
+    def _apply_mac_style_to_code_blocks(self, soup):
+        """为所有<pre>代码块应用macOS窗口样式，并保证其在原位置。"""
+        for pre_tag in soup.find_all('pre'):
+            # 1. 创建macOS窗口容器
+            container = soup.new_tag('div')
+            container['style'] = (
+                "background: #2d2d2d; "
+                "border-radius: 8px; "
+                "box-shadow: 0 10px 20px rgba(0,0,0,0.19), 0 6px 6px rgba(0,0,0,0.23); "
+                "margin-bottom: 1.5em; "
+                "overflow: hidden;"
+            )
+
+            # 2. 创建标题栏
+            title_bar = soup.new_tag('div')
+            title_bar['style'] = (
+                "height: 28px; "
+                "background: #e0e0e0; "
+                "display: flex; "
+                "align-items: center; "
+                "padding-left: 10px;"
+            )
+
+            # 3. 创建红绿灯按钮
+            colors = ["#ff5f56", "#ffbd2e", "#27c93f"]
+            for color in colors:
+                dot = soup.new_tag('span')
+                dot['style'] = (
+                    f"height: 12px; "
+                    f"width: 12px; "
+                    f"background-color: {color}; "
+                    f"border-radius: 50%; "
+                    "display: inline-block; "
+                    "margin-right: 8px;"
+                )
+                title_bar.append(dot)
+            
+            # 4. 创建代码内容区域
+            content_area = soup.new_tag('div')
+            content_area['style'] = "padding: 15px; overflow-x: auto;"
+            
+            # 5. 在文档中，用新容器替换掉旧的<pre>标签
+            pre_tag.replace_with(container)
+            
+            # 6. 将原始的、完整的<pre>标签移动到新容器的内容区
+            content_area.append(pre_tag)
+            
+            # 7. 组装窗口
+            container.append(title_bar)
+            container.append(content_area)
+
 
     def _process_lists(self, soup):
         """

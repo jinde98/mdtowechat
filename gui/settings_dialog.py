@@ -6,6 +6,7 @@ class SettingsDialog(QDialog):
     def __init__(self, config_path="config.yaml", parent=None):
         super().__init__(parent)
         self.setWindowTitle("设置") # 设置窗口标题。
+        self.setMinimumWidth(600)  # 设置窗口最小宽度
         self.config_path = config_path
         self.config_data = self._load_config()
 
@@ -32,27 +33,32 @@ class SettingsDialog(QDialog):
         jina_layout = QFormLayout()
         self.jina_api_key_edit = QLineEdit()
         self.jina_api_key_edit.setEchoMode(QLineEdit.Password)
-        jina_layout.addRow("Jina API Key:", self.jina_api_key_edit)
+        self.jina_api_key_edit.setPlaceholderText("在此输入您的 Jina API 密钥")
+        jina_layout.addRow("Jina API 密钥:", self.jina_api_key_edit)
         jina_group.setLayout(jina_layout)
         layout.addWidget(jina_group)
 
         # LLM Settings
-        llm_group = QGroupBox("大语言模型 (LLM) 设置")
+        llm_group = QGroupBox("大语言模型 (LLM) 设置 (OpenAI 兼容)")
         llm_layout = QFormLayout()
         self.llm_api_key_edit = QLineEdit()
         self.llm_api_key_edit.setEchoMode(QLineEdit.Password)
         self.llm_base_url_edit = QLineEdit()
+        self.llm_base_url_edit.setPlaceholderText("例如：https://api.openai.com/v1")
         self.llm_model_edit = QLineEdit()
+        self.llm_model_edit.setPlaceholderText("例如：gpt-4-turbo")
         self.llm_system_prompt_edit = QTextEdit()
         self.llm_system_prompt_edit.setMinimumHeight(120)
-        llm_layout.addRow("API Key:", self.llm_api_key_edit)
-        llm_layout.addRow("Base URL:", self.llm_base_url_edit)
-        llm_layout.addRow("Model:", self.llm_model_edit)
-        llm_layout.addRow("System Prompt:", self.llm_system_prompt_edit)
+        llm_layout.addRow("API 密钥:", self.llm_api_key_edit)
+        llm_layout.addRow("API 地址:", self.llm_base_url_edit)
+        llm_layout.addRow("模型名称:", self.llm_model_edit)
+        llm_layout.addRow("系统提示词:", self.llm_system_prompt_edit)
         llm_group.setLayout(llm_layout)
         layout.addWidget(llm_group)
 
-        button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        button_box = QDialogButtonBox()
+        save_button = button_box.addButton("保存", QDialogButtonBox.AcceptRole)
+        cancel_button = button_box.addButton("取消", QDialogButtonBox.RejectRole)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)

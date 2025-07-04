@@ -7,7 +7,8 @@ from functools import partial
 import os
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 import logging
-from PyQt5.QtCore import Qt, QUrl, QSize
+from PyQt5.QtCore import Qt, QUrl, QSize, pyqtSlot, QTimer
+from PyQt5.QtWebChannel import QWebChannel
 from PyQt5.QtGui import QColor, QFont, QIcon
 from bs4 import BeautifulSoup
 
@@ -50,6 +51,8 @@ class MainWindow(QMainWindow):
         
         self.articles = []
         self.current_article_index = -1
+        self._is_switching_articles = False # 添加一个标志来防止重入
+        self._is_syncing_scroll = False # 添加标志以防止滚动同步循环
 
         self._init_ui()
         self._create_menu_bar()
@@ -88,26 +91,31 @@ class MainWindow(QMainWindow):
         article_action_layout = QHBoxLayout()
         add_article_btn = QPushButton(" 新增文章")
         add_article_btn.setIcon(QIcon.fromTheme("list-add"))
-        add_article_btn.setFixedSize(QSize(85, 35)) # Larger size
+        add_article_btn.setFixedSize(QSize(100, 35)) # Adjusted size
         add_article_btn.setToolTip("新增一篇文章")
         add_article_btn.clicked.connect(self._add_article)
-
-        crawl_article_btn = QPushButton(" 抓取文章")
-        crawl_article_btn.setIcon(QIcon.fromTheme("web-browser"))
-        crawl_article_btn.setFixedSize(QSize(85, 35))
-        crawl_article_btn.setToolTip("从网页抓取内容生成文章")
-        crawl_article_btn.clicked.connect(self._crawl_article)
         
         remove_article_btn = QPushButton(" 删除文章")
         remove_article_btn.setIcon(QIcon.fromTheme("list-remove"))
-        remove_article_btn.setFixedSize(QSize(85, 35)) # Larger size
+        remove_article_btn.setFixedSize(QSize(100, 35)) # Adjusted size
         remove_article_btn.setToolTip("删除当前文章")
         remove_article_btn.clicked.connect(self._remove_article)
 
         article_action_layout.addWidget(add_article_btn)
-        article_action_layout.addWidget(crawl_article_btn)
         article_action_layout.addWidget(remove_article_btn)
         left_layout.addLayout(article_action_layout)
+
+        # Crawl Button - new centered layout
+        crawl_layout = QHBoxLayout()
+        crawl_article_btn = QPushButton(" 从网页地址抓取内容")
+        crawl_article_btn.setIcon(QIcon.fromTheme("web-browser"))
+        crawl_article_btn.setFixedHeight(35) # Match height
+        crawl_article_btn.setToolTip("从网页抓取内容并由AI生成文章")
+        crawl_article_btn.clicked.connect(self._crawl_article)
+        crawl_layout.addStretch()
+        crawl_layout.addWidget(crawl_article_btn)
+        crawl_layout.addStretch()
+        left_layout.addLayout(crawl_layout)
 
         # Separator
         separator = QFrame()
@@ -130,6 +138,7 @@ class MainWindow(QMainWindow):
 
         # Middle pane: Markdown Editor (customized to handle image pasting)
         self.markdown_editor = PastingImageEditor(wechat_api=self.wechat_api)
+        self.markdown_editor.verticalScrollBar().valueChanged.connect(self._on_editor_scrolled)
         self.markdown_editor.setFontPointSize(14)
         self.markdown_editor.setStyleSheet("font-family: 'Consolas', 'Monaco', 'Courier New', monospace; line-height: 1.5;")
         self.markdown_editor.setPlaceholderText(
@@ -255,7 +264,7 @@ class MainWindow(QMainWindow):
 
     def _init_articles(self):
         """初始化文章列表，默认创建一篇新文章。"""
-        self.articles = [{'title': '未命名文章 1', 'content': '# 未命名文章 1\n\n', 'theme': 'default'}]
+        self.articles = [{'title': '未命名文章 1', 'content': '# 未命名文章 1\n\n', 'theme': 'blue_glow'}]
         self.current_article_index = 0
         self._refresh_article_list()
         self._load_article_content(self.current_article_index)
@@ -270,9 +279,11 @@ class MainWindow(QMainWindow):
             self.articles[i]['title'] = parsed_title
             item = QListWidgetItem(f"{i+1}. {parsed_title}")
             self.article_list_widget.addItem(item)
-        self.article_list_widget.blockSignals(False)
+        
+        # 在信号解锁前恢复选中项，避免触发不必要的currentRowChanged信号导致切换问题
         if self.current_article_index >= 0:
             self.article_list_widget.setCurrentRow(self.current_article_index)
+        self.article_list_widget.blockSignals(False)
 
     def _add_article(self):
         """新增一篇文章。"""
@@ -352,10 +363,18 @@ class MainWindow(QMainWindow):
 
     def _select_article(self, index):
         """当用户在列表中选择不同文章时触发。"""
-        if index != self.current_article_index and self.current_article_index != -1:
-            self._update_current_article_content() # 保存离开前的文章内容
+        if self._is_switching_articles or index == self.current_article_index:
+            return
+
+        self._is_switching_articles = True
+        try:
+            if self.current_article_index != -1:
+                self._update_current_article_content(refresh_list=False) # 保存时禁止刷新列表
+            
             self.current_article_index = index
             self._load_article_content(index)
+        finally:
+            self._is_switching_articles = False
 
     def _load_article_content(self, index):
         """加载指定索引的文章内容到编辑器。"""
@@ -366,13 +385,14 @@ class MainWindow(QMainWindow):
             self._update_preview()
             self._update_theme_menu_selection()
 
-    def _update_current_article_content(self):
+    def _update_current_article_content(self, refresh_list=True):
         """将编辑器内容保存到当前文章的数据结构中，并触发预览更新。"""
         if 0 <= self.current_article_index < len(self.articles):
             self.articles[self.current_article_index]['content'] = self.markdown_editor.toPlainText()
             self._update_preview()
-            # 实时更新列表中的标题
-            self._refresh_article_list()
+            # 实时更新列表中的标题，但在切换文章时应禁止
+            if refresh_list and not self._is_switching_articles:
+                self._refresh_article_list()
             
     def _update_preview(self):
         """根据当前选中文章的内容更新HTML预览。"""
@@ -687,6 +707,43 @@ class MainWindow(QMainWindow):
             self.wechat_api = WeChatAPI()
             self.log.info("Settings saved and configuration reloaded.")
 
+    # --- Scroll Synchronization Methods ---
+
+    def _on_editor_scrolled(self, value):
+        """当编辑器滚动时，同步预览区。"""
+        if self._is_syncing_scroll:
+            return
+            
+        editor_scrollbar = self.markdown_editor.verticalScrollBar()
+        # 避免在没有滚动条时（如内容很少）进行计算
+        if editor_scrollbar.maximum() == 0:
+            return
+            
+        # 计算滚动百分比
+        scroll_percentage = value / editor_scrollbar.maximum()
+        
+        # 构建并执行JS代码来滚动预览区
+        js_code = f"window.scrollTo(0, document.body.scrollHeight * {scroll_percentage});"
+        
+        self._is_syncing_scroll = True
+        self.html_preview.page().runJavaScript(js_code)
+        # 使用定时器在短暂延迟后重置标志，以允许反向同步
+        QTimer.singleShot(100, lambda: setattr(self, '_is_syncing_scroll', False))
+
+    @pyqtSlot(float)
+    def on_preview_scrolled(self, percentage):
+        """当预览区滚动时（由JS调用），同步编辑器。"""
+        if self._is_syncing_scroll:
+            return
+            
+        editor_scrollbar = self.markdown_editor.verticalScrollBar()
+        max_val = editor_scrollbar.maximum()
+        
+        self._is_syncing_scroll = True
+        editor_scrollbar.setValue(int(max_val * percentage))
+        # 使用定时器在短暂延迟后重置标志，以允许反向同步
+        QTimer.singleShot(100, lambda: setattr(self, '_is_syncing_scroll', False))
+
     def _toggle_mode(self):
         """切换亮色/暗黑模式。"""
         if self.current_mode == "light":
@@ -833,10 +890,42 @@ class CustomWebEngineView(QWebEngineView):
         self.html_content = ""
         # 设置页面背景为透明，以便HTML中的body背景色可以显示出来
         self.page().setBackgroundColor(QColor("transparent"))
+        
+        # 为滚动同步设置WebChannel
+        self.channel = QWebChannel(self.page())
+        self.page().setWebChannel(self.channel)
+        # 将父窗口（MainWindow）注册为可从JS调用的对象
+        self.channel.registerObject("scroll_handler", parent)
 
     def set_html_content(self, html):
         self.html_content = html
-        self.setHtml(html, baseUrl=QUrl.fromLocalFile(os.path.abspath(".")))
+        
+        # 注入用于滚动同步的JavaScript代码
+        js_to_inject = """
+        <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    // 将Python注册的对象暴露给JS
+                    window.scroll_handler = channel.objects.scroll_handler;
+                    
+                    // 监听滚动事件
+                    window.addEventListener('scroll', function() {
+                        if (window.scroll_handler) {
+                            const scrollableHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+                            if (scrollableHeight > 0) {
+                                let percentage = window.scrollY / scrollableHeight;
+                                // 将滚动百分比发送回Python
+                                window.scroll_handler.on_preview_scrolled(percentage);
+                            }
+                        }
+                    });
+                });
+            });
+        </script>
+        """
+        full_html = js_to_inject + html
+        self.setHtml(full_html, baseUrl=QUrl.fromLocalFile(os.path.abspath(".")))
 
     def contextMenuEvent(self, event):
         # 创建一个空的右键菜单

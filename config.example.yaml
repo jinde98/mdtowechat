@@ -6,13 +6,13 @@ wechat:
 
 # Jina AI Reader API 配置
 jina:
-  api_key: "" # 可选，你的Jina API密钥
+  api_key: "" # 你的Jina API密钥
 
-# 大语言模型 (LLM) 配置
+# 大语言模型 (LLM) 配置 (OpenAI 兼容)
 llm:
-  api_key: "" # 默认或你自己的API Key
-  base_url: "" # 模型的API端点
-  model: "" # 使用的模型名称
+  api_key: "" # 你的API Key
+  base_url: "" # 模型的API地址, 例如: https://api.openai.com/v1
+  model: "" # 使用的模型名称, 例如: gpt-4-turbo
   system_prompt: |-
     1. 请提取链接中的核心内容：去除广告、无关链接和冗余信息，仅保留正文内容和文章内的图片。图片请以 Markdown 格式嵌入显示。
 
