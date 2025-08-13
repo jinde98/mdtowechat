@@ -1,53 +1,40 @@
 import os
 import requests
 import time
-import yaml
 import logging
 import json
 import hashlib
 from bs4 import BeautifulSoup
 from PIL import Image
+from .image_cache import ImageCache
+from .config import ConfigManager
 
 class WeChatAPI:
     """负责与微信公众号API进行交互，包括获取Access Token、上传图片、创建图文草稿等。"""
-    def __init__(self, config_path="config.yaml"): # 初始化微信API客户端。
+    def __init__(self):
         self.log = logging.getLogger("MdToWeChat")
-        self.config_path = config_path
-        self.access_token = None # 存储Access Token。
-        self.access_token_cache_file = "access_token.json" # Access Token缓存文件路径。
+        self.config_manager = ConfigManager()
+        self.access_token = None
+        self.access_token_cache_file = "access_token.json"
+        self.image_cache = ImageCache()
+        self._load_config_values()
 
-        try: # 尝试加载配置文件，处理文件未找到或解析错误。
-            self.config = self._load_config()
-        except FileNotFoundError as e:
-            self.log.critical(f"Config file not found: {e}")
-            raise
-        except ValueError as e:
-            self.log.critical(f"Config file parsing error: {e}")
-            raise
+    def _load_config_values(self):
+        """从ConfigManager加载或重新加载配置值。"""
+        self.app_id = self.config_manager.get("wechat.app_id")
+        self.app_secret = self.config_manager.get("wechat.app_secret")
+        self.default_author = self.config_manager.get("wechat.default_author", "匿名")
+        self.default_cover_media_id = self.config_manager.get("wechat.default_cover_media_id")
+
+        if not self.app_id or not self.app_secret:
+            self.log.warning("微信 app_id 或 app_secret 未在 config.yaml 中配置。")
+            # 不再抛出异常，以便用户可以在UI中设置
             
-        if not isinstance(self.config, dict): # 验证配置文件格式。
-            raise ValueError("配置文件解析失败，请检查YAML格式")
-            
-        self.wechat_config = self.config.get("wechat", {}) # 从配置中获取微信相关设置。
-        self.app_id = self.wechat_config.get("app_id")
-        self.app_secret = self.wechat_config.get("app_secret")
-        self.default_author = self.wechat_config.get("default_author", "匿名") # 获取默认作者。
-        self.default_cover_media_id = self.config.get("DEFAULT_COVER_MEDIA_ID") # 获取默认封面素材ID。
-
-        if not self.app_id or not self.app_secret: # 检查AppID和AppSecret是否配置。
-            raise ValueError("""
-                WECHAT_APP_ID和WECHAT_APP_SECRET必须在config.yaml中设置
-                示例格式：
-                wechat:
-                  app_id: your_app_id
-                  app_secret: your_app_secret
-            """)
-
-    def _load_config(self):
-        if not os.path.exists(self.config_path):
-            raise FileNotFoundError(f"配置文件不存在: {self.config_path}")
-        with open(self.config_path, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f)
+    def reload_config(self):
+        """外部调用的方法，用于在配置更改后刷新实例。"""
+        self.log.info("重新加载 WeChatAPI 配置...")
+        self.config_manager.load()
+        self._load_config_values()
 
     def get_access_token(self):
         cached_token, expiry_time = self._load_access_token_from_cache()
@@ -241,69 +228,84 @@ class WeChatAPI:
             self.log.error(f"Unexpected error creating draft: {e}", exc_info=True)
             return None, f"创建草稿发生未知异常: {e}"
 
+    def _upload_image(self, original_url, upload_type='content'):
+        """
+        统一的图片上传方法，处理缓存、下载和上传逻辑。
+        :param original_url: 原始图片URL（本地路径或网络URL）
+        :param upload_type: 'content' 或 'permanent'
+        :return: (media_id, wechat_url, error_message)
+        """
+        if not original_url:
+            return None, None, "图片URL为空"
+
+        # 1. 检查缓存
+        cached_data = self.image_cache.get(original_url)
+        if cached_data:
+            self.log.info(f"从缓存中找到图片: {original_url} -> {cached_data}")
+            if upload_type == 'permanent':
+                return cached_data.get('media_id'), cached_data.get('url'), None
+            else:
+                return None, cached_data.get('url'), None
+
+        # 2. 准备要上传的本地文件路径
+        local_path_to_upload = original_url
+        is_temp_file = False
+        if original_url.startswith(('http://', 'https://')):
+            try:
+                local_path_to_upload = self._download_image_to_temp(original_url)
+                is_temp_file = True
+            except Exception as e:
+                error_msg = f"下载图片失败: {original_url}, error: {e}"
+                self.log.error(error_msg)
+                return None, None, error_msg
+        
+        # 3. 执行上传
+        media_id, wechat_url, error = (None, None, None)
+        if upload_type == 'permanent':
+            media_id, wechat_url, error = self.add_permanent_material(local_path_to_upload, 'image')
+        else: # content
+            wechat_url, error = self.upload_image_for_content(local_path_to_upload)
+
+        # 4. 清理临时文件
+        if is_temp_file and os.path.exists(local_path_to_upload):
+            os.remove(local_path_to_upload)
+
+        # 5. 如果上传成功，更新缓存
+        if not error and wechat_url:
+            self.image_cache.set(original_url, {'media_id': media_id, 'url': wechat_url})
+            self.log.info(f"图片上传成功并已缓存: {original_url} -> {wechat_url}")
+        
+        return media_id, wechat_url, error
+
     def get_thumb_media_id_and_url(self, cover_image_path):
         if not cover_image_path:
             self.log.warning("封面图路径为空, 尝试使用默认封面。")
             return self.default_cover_media_id, None
-        if "mmbiz.qpic.cn" in cover_image_path:
-            self.log.info(f"封面图是微信URL: {cover_image_path}，尝试查找media_id...")
-            thumb_media_id = self.find_media_id_by_url(cover_image_path)
-            if thumb_media_id:
-                return thumb_media_id, cover_image_path
-            self.log.warning(f"无法为URL {cover_image_path} 找到对应的media_id，将尝试重新上传。")
-            try:
-                temp_image_path = self._download_image_to_temp(cover_image_path)
-                media_id, url, _ = self.add_permanent_material(temp_image_path, 'image')
-                os.remove(temp_image_path)
-                return media_id, url
-            except Exception as e:
-                self.log.error(f"处理微信封面图失败: {e}")
-                return None, None
-        else:
-            self.log.info(f"封面图是本地文件或外部URL: {cover_image_path}，将上传为永久素材。")
-            image_to_upload = cover_image_path
-            if cover_image_path.startswith(('http://', 'https://')):
-                try:
-                    image_to_upload = self._download_image_to_temp(cover_image_path)
-                except Exception as e:
-                    self.log.error(f"下载封面图失败: {e}")
-                    return None, None
-            media_id, url, _ = self.add_permanent_material(image_to_upload, 'image')
-            if image_to_upload != cover_image_path:
-                os.remove(image_to_upload)
-            return media_id, url
+        
+        media_id, url, error = self._upload_image(cover_image_path, upload_type='permanent')
+        if error:
+            self.log.error(f"封面图处理失败: {error}")
+            return None, None
+            
+        return media_id, url
 
-    def process_content_images(self, html_content, uploaded_images_cache):
+    def process_content_images(self, html_content):
         self.log.info("开始处理文章内容中的图片...")
         soup = BeautifulSoup(html_content, 'html.parser')
         img_tags = soup.find_all('img')
         for img_tag in img_tags:
             src = img_tag.get('src')
-            if not src:
+            if not src or "mmbiz.qpic.cn" in src:
+                if src: self.log.info(f"内容图片 {src} 是微信URL或为空，跳过处理。")
                 continue
-            if "mmbiz.qpic.cn" in src:
-                self.log.info(f"内容图片 {src} 是微信URL，跳过处理。")
-                continue
-            if src in uploaded_images_cache:
-                self.log.info(f"内容图片 {src} 已作为封面图上传，直接使用缓存URL。")
-                img_tag['src'] = uploaded_images_cache[src]
-                continue
-            self.log.info(f"内容图片 {src} 不是微信URL，准备上传...")
-            image_path_for_upload = src
-            if src.startswith(('http://', 'https://')):
-                 try:
-                    image_path_for_upload = self._download_image_to_temp(src)
-                 except Exception as e:
-                     self.log.error(f"下载内容图片失败: {src}, error: {e}")
-                     continue
-            new_url, error_msg = self.upload_image_for_content(image_path_for_upload)
-            if image_path_for_upload != src:
-                os.remove(image_path_for_upload)
+
+            _, new_url, error = self._upload_image(src, upload_type='content')
+            
             if new_url:
                 self.log.info(f"内容图片上传成功，新URL: {new_url}")
                 img_tag['src'] = new_url
             else:
-                self.log.warning(f"内容图片 {src} 上传失败: {error_msg}，将保留原始链接。")
+                self.log.warning(f"内容图片 {src} 上传失败: {error}，将保留原始链接。")
         return str(soup)
 
     def _download_image_to_temp(self, url):
@@ -353,60 +355,3 @@ class WeChatAPI:
                     os.remove(temp_file_path_initial)
                 except OSError as e:
                     self.log.error(f"无法删除临时文件 {temp_file_path_initial}: {e}")
-
-    def find_media_id_by_url(self, image_url, retries=1):
-        if "mmbiz.qpic.cn" not in image_url:
-            self.log.warning(f"非微信图库URL，无法查找media_id: {image_url}")
-            return None
-
-        payload = {"type": "image", "offset": 0, "count": 20}
-        total_count = -1
-        
-        access_token = self.get_access_token()
-        if not access_token:
-            self.log.error("无法获取 access_token，find_media_id_by_url 操作失败")
-            return None
-
-        api_url = "https://api.weixin.qq.com/cgi-bin/material/batchget_material"
-
-        while True:
-            try:
-                response = self._make_request("POST", api_url, access_token, json=payload)
-                data = response.json()
-
-                if "errcode" in data and data["errcode"] != 0:
-                    self.log.error(f"获取素材列表失败: {data}")
-                    return None
-
-                if total_count == -1:
-                    total_count = data.get('total_count', 0)
-                    if total_count == 0:
-                        self.log.warning("素材库为空，无法找到任何图片。")
-                        return None
-
-                for item in data.get('item', []):
-                    if item.get('url') == image_url:
-                        self.log.info(f"找到图片，media_id为: {item['media_id']}")
-                        return item['media_id']
-
-                if payload['offset'] + payload['count'] >= total_count:
-                    break
-                
-                payload['offset'] += payload['count']
-
-            except requests.exceptions.RequestException as e:
-                error_str = str(e)
-                if retries > 0 and ('40001' in error_str or '42001' in error_str or '40014' in error_str):
-                    self.log.warning("Access token expired or invalid, refreshing and retrying find_media_id_by_url...")
-                    access_token = self._fetch_and_cache_access_token()
-                    retries -= 1
-                    continue
-                
-                self.log.error(f"查找media_id过程中发生网络或请求错误: {e}", exc_info=True)
-                return None
-            except Exception as e:
-                self.log.error(f"查找media_id过程中发生未知错误: {e}", exc_info=True)
-                return None
-
-        self.log.warning(f"遍历完所有素材后，未找到图片 {image_url} 对应的media_id")
-        return None

@@ -1,0 +1,89 @@
+/* styles/blue_glow.css */
+/* 蓝色辉光主题 - 恢复原始风格并优化代码块 */
+
+wrapper {
+    padding: 20px;
+    background-color: #0a0e1a;
+    color: #e0e0e0;
+    border-radius: 10px;
+    border: 1px solid #1a2a4a;
+}
+h1 {
+    font-size: 26px;
+    color: #87ceeb;
+    text-shadow: 0 0 10px #87ceeb, 0 0 20px #87ceeb;
+    border-bottom: 2px solid #1a2a4a;
+    padding-bottom: 10px;
+    margin-bottom: 25px;
+}
+h2 {
+    font-size: 22px;
+    color: #87ceeb;
+    margin-top: 30px;
+    margin-bottom: 15px;
+    border-left: 4px solid #87ceeb;
+    padding-left: 10px;
+}
+p {
+    line-height: 1.8;
+    margin-bottom: 15px;
+    color: #c0c0c0;
+}
+blockquote {
+    border-left: 4px solid #87ceeb;
+    padding: 15px;
+    margin: 20px 0;
+    background-color: #1a2a4a;
+    color: #a0a0a0;
+    box-shadow: 0 0 15px rgba(135, 206, 235, 0.1);
+}
+a {
+    color: #87ceeb;
+    text-decoration: none;
+    text-shadow: 0 0 5px #87ceeb;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+/* 统一代码块样式: 简洁黑底白字 */
+pre {
+    background-color: #1a1a1a; /* 纯黑背景 */
+    border: 1px solid #555; /* 深灰色边框 */
+    border-radius: 4px;
+    padding: 1em;
+    margin: 20px 0;
+    overflow-x: auto;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    box-shadow: none; /* 移除辉光主题的阴影 */
+}
+
+pre code {
+    background: none;
+    padding: 0;
+    color: #f0f0f0; /* 白色文字 */
+    font-family: inherit;
+    font-size: inherit;
+    text-shadow: none; /* 确保没有其他主题的文字阴影 */
+}
+
+/* 行内代码块 */
+code {
+    background-color: #333; /* 深灰色背景 */
+    color: #f0f0f0; /* 白色文字 */
+    padding: 3px 6px;
+    border-radius: 4px;
+    font-family: 'Fira Code', 'Courier New', monospace; /* 保留原有字体 */
+    text-shadow: none;
+}
+
+img {
+    max-width: 100%;
+    height: auto; /* 保持比例 */
+    border-radius: 8px;
+    box-shadow: 0 0 15px rgba(135, 206, 235, 0.2);
+    display: block; /* 解决底部空隙问题 */
+    margin: 20px auto; /* 居中 */
+}

@@ -1,14 +1,14 @@
-import yaml
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit,
                              QDialogButtonBox, QMessageBox, QGroupBox, QTextEdit)
+from core.config import ConfigManager
 
 class SettingsDialog(QDialog):
-    def __init__(self, config_path="config.yaml", parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("设置") # 设置窗口标题。
-        self.setMinimumWidth(600)  # 设置窗口最小宽度
-        self.config_path = config_path
-        self.config_data = self._load_config()
+        self.setWindowTitle("设置")
+        self.setMinimumWidth(600)
+        self.config_manager = ConfigManager()
+        self.config_data = self.config_manager.config # 获取当前配置的副本
 
         self._init_ui()
         self._populate_data()
@@ -63,30 +63,18 @@ class SettingsDialog(QDialog):
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
-    def _load_config(self):
-        try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                return yaml.safe_load(f) or {}
-        except FileNotFoundError:
-            return {}
-
     def _populate_data(self):
-        # Populate WeChat data
-        wechat_config = self.config_data.get("wechat", {})
-        self.app_id_edit.setText(wechat_config.get("app_id", ""))
-        self.app_secret_edit.setText(wechat_config.get("app_secret", ""))
-        self.author_edit.setText(wechat_config.get("default_author", ""))
+        # 使用 config_manager.get() 来安全地获取嵌套值
+        self.app_id_edit.setText(self.config_manager.get("wechat.app_id", ""))
+        self.app_secret_edit.setText(self.config_manager.get("wechat.app_secret", ""))
+        self.author_edit.setText(self.config_manager.get("wechat.default_author", ""))
+        
+        self.jina_api_key_edit.setText(self.config_manager.get("jina.api_key", ""))
 
-        # Populate Jina data
-        jina_config = self.config_data.get("jina", {})
-        self.jina_api_key_edit.setText(jina_config.get("api_key", ""))
-
-        # Populate LLM data
-        llm_config = self.config_data.get("llm", {})
-        self.llm_api_key_edit.setText(llm_config.get("api_key", ""))
-        self.llm_base_url_edit.setText(llm_config.get("base_url", ""))
-        self.llm_model_edit.setText(llm_config.get("model", ""))
-        self.llm_system_prompt_edit.setPlainText(llm_config.get("system_prompt", ""))
+        self.llm_api_key_edit.setText(self.config_manager.get("llm.api_key", ""))
+        self.llm_base_url_edit.setText(self.config_manager.get("llm.base_url", ""))
+        self.llm_model_edit.setText(self.config_manager.get("llm.model", ""))
+        self.llm_system_prompt_edit.setPlainText(self.config_manager.get("llm.system_prompt", ""))
 
     def accept(self):
         # 使用新值更新配置字典。
@@ -111,10 +99,9 @@ class SettingsDialog(QDialog):
         if 'DEFAULT_AUTHOR' in self.config_data:
             del self.config_data['DEFAULT_AUTHOR']
 
-        # 将配置保存回YAML文件。
+        # 使用ConfigManager保存配置
         try:
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(self.config_data, f, allow_unicode=True, default_flow_style=False)
+            self.config_manager.save(self.config_data)
             QMessageBox.information(self, "成功", "设置已保存。")
             super().accept()
         except Exception as e:

@@ -1,0 +1,80 @@
+/* styles/green.css */
+/* 绿色主题 - 恢复原始风格并优化代码块 */
+
+wrapper {
+    padding: 20px;
+    background-color: #f5fcf7;
+    border-radius: 5px;
+}
+h1 {
+    font-size: 25px;
+    color: #228b22;
+    border-bottom: 2px solid #3cb371;
+    padding-bottom: 8px;
+    margin-bottom: 20px;
+}
+h2 {
+    font-size: 21px;
+    color: #2e8b57;
+    margin-top: 28px;
+    margin-bottom: 12px;
+}
+p {
+    line-height: 1.75;
+    color: #333;
+}
+blockquote {
+    border-left: 4px solid #3cb371;
+    padding: 12px;
+    margin: 15px 0;
+    background-color: #e8f5e9;
+    color: #444;
+}
+a {
+    color: #2e8b57;
+    text-decoration: none;
+}
+a:hover {
+    text-decoration: underline;
+}
+
+/* 统一代码块样式: 简洁黑底白字 */
+pre {
+    background-color: #1a1a1a; /* 纯黑背景 */
+    border: 1px solid #555; /* 深灰色边框 */
+    border-radius: 4px;
+    padding: 1em;
+    margin: 20px 0;
+    overflow-x: auto;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    box-shadow: none;
+}
+
+pre code {
+    background: none;
+    padding: 0;
+    color: #f0f0f0; /* 白色文字 */
+    font-family: inherit;
+    font-size: inherit;
+    text-shadow: none;
+}
+
+/* 行内代码块 */
+code {
+    background-color: #333; /* 深灰色背景 */
+    color: #f0f0f0; /* 白色文字 */
+    padding: 3px 6px;
+    border-radius: 4px;
+    font-family: monospace; /* 保留原有字体 */
+}
+
+img {
+    max-width: 100%;
+    height: auto; /* 保持比例 */
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    display: block; /* 解决底部空隙问题 */
+    margin: 20px auto; /* 居中 */
+}

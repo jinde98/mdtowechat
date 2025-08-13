@@ -1,15 +1,16 @@
 import sys
-import sys
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
-                             QTextEdit, QAction, QFileDialog, QSplitter, QActionGroup, 
-                             QMenu, QListWidget, QPushButton, QListWidgetItem, QFrame, QLabel) # Added QLabel
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
+                             QTextEdit, QAction, QFileDialog, QSplitter, QActionGroup,
+                             QMenu, QListWidget, QPushButton, QListWidgetItem, QFrame, QLabel, QDialog, QMessageBox) # Added QLabel, QDialog, QMessageBox
 from functools import partial
 import os
+import winsound # Added for playing system sounds
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 import logging
-from PyQt5.QtCore import Qt, QUrl, QSize, pyqtSlot, QTimer
+from PyQt5.QtCore import Qt, QUrl, QSize, pyqtSlot, QTimer, QThread, QObject
 from PyQt5.QtWebChannel import QWebChannel
 from PyQt5.QtGui import QColor, QFont, QIcon
+from PyQt5.QtMultimedia import QSoundEffect # Added for sound effect
 from bs4 import BeautifulSoup
 
 from core.renderer import MarkdownRenderer
@@ -24,8 +25,7 @@ from core.template_manager import TemplateManager
 from gui.status_dialog import StatusDialog
 from gui.settings_dialog import SettingsDialog
 from gui.crawl_dialog import CrawlDialog
-from PyQt5.QtWidgets import QDialog, QMessageBox
-from core.crawler import Crawler
+from core.workers import CrawlWorker, PublishWorker
 from core.llm import LLMProcessor
 
 class MainWindow(QMainWindow):
@@ -58,6 +58,35 @@ class MainWindow(QMainWindow):
         self._create_menu_bar()
         self._init_articles()
         self._apply_mode_styles() # 初始化应用模式样式
+        self._init_notification_label() # 初始化提示标签
+
+    def _init_notification_label(self):
+        """初始化用于显示临时通知的标签。"""
+        self.notification_label = QLabel(self)
+        self.notification_label.setAlignment(Qt.AlignCenter)
+        self.notification_label.setStyleSheet("""
+            QLabel {
+                background-color: rgba(0, 0, 0, 0.7);
+                color: white;
+                font-size: 16px;
+                padding: 10px 20px;
+                border-radius: 15px;
+            }
+        """)
+        self.notification_label.hide()
+
+    def show_notification(self, message):
+        """在窗口中央显示一个会自动消失的通知。"""
+        self.notification_label.setText(message)
+        self.notification_label.adjustSize()
+        # 计算居中位置
+        x = (self.width() - self.notification_label.width()) // 2
+        y = (self.height() - self.notification_label.height()) // 2
+        self.notification_label.move(x, y)
+        self.notification_label.show()
+        self.notification_label.raise_()
+        # 2秒后自动隐藏
+        QTimer.singleShot(2000, self.notification_label.hide)
 
     def _init_ui(self):
         """初始化用户界面布局"""
@@ -76,7 +105,7 @@ class MainWindow(QMainWindow):
         mode_toggle_layout = QHBoxLayout() # For label and button
         mode_toggle_layout.addWidget(QLabel("显示模式:"))
         self.mode_toggle_btn = QPushButton()
-        self.mode_toggle_btn.setFixedSize(QSize(60, 28)) # Fixed size for text
+        # self.mode_toggle_btn.setFixedSize(QSize(60, 28)) # 移除固定尺寸，让其自适应
         self.mode_toggle_btn.setToolTip("点击切换亮色/暗黑模式")
         self.mode_toggle_btn.clicked.connect(self._toggle_mode)
         self._update_mode_toggle_button() # Set initial text/style
@@ -126,9 +155,11 @@ class MainWindow(QMainWindow):
         # Article List
         self.article_list_widget = QListWidget()
         self.article_list_widget.currentRowChanged.connect(self._select_article)
+        self.article_list_widget.setContextMenuPolicy(Qt.CustomContextMenu) # 允许自定义上下文菜单
+        self.article_list_widget.customContextMenuRequested.connect(self._show_article_list_context_menu) # 连接信号
         # Increase font size for article titles
         font = QFont()
-        font.setPointSize(11) 
+        font.setPointSize(11)
         self.article_list_widget.setFont(font)
         self.article_list_widget.setStyleSheet("QListWidget::item { padding: 5px; }") # Add padding to items
         left_layout.addWidget(self.article_list_widget)
@@ -222,18 +253,8 @@ class MainWindow(QMainWindow):
         self.theme_group = QActionGroup(self)
         self.theme_group.setExclusive(True)
 
-        # 从renderer获取可用主题
-        available_themes = self.renderer.get_available_themes()
-        for theme_name in available_themes:
-            # 将下划线替换为空格并大写首字母以获得更友好的显示名称
-            display_name = theme_name.replace("_", " ").title()
-            action = QAction(display_name, self, checkable=True)
-
-            # 使用 functools.partial 来传递主题名称
-            action.triggered.connect(partial(self._change_theme, theme_name))
-
-            self.theme_group.addAction(action)
-            theme_menu.addAction(action)
+        # 动态从renderer获取可用主题
+        self.populate_theme_menu(theme_menu)
 
 
         # 发布菜单
@@ -262,9 +283,25 @@ class MainWindow(QMainWindow):
         about_action.triggered.connect(self._show_about_dialog)
         help_menu.addAction(about_action)
 
+    def populate_theme_menu(self, theme_menu):
+        """动态填充主题菜单"""
+        # 清空现有actions
+        for action in self.theme_group.actions():
+            self.theme_group.removeAction(action)
+        theme_menu.clear()
+        
+        available_themes = self.renderer.get_available_themes()
+        for theme_name in sorted(available_themes):
+            display_name = theme_name.replace("_", " ").title()
+            action = QAction(display_name, self, checkable=True)
+            action.setData(theme_name) # 将原始名称存储在action中
+            action.triggered.connect(self._on_theme_selected)
+            self.theme_group.addAction(action)
+            theme_menu.addAction(action)
+
     def _init_articles(self):
         """初始化文章列表，默认创建一篇新文章。"""
-        self.articles = [{'title': '未命名文章 1', 'content': '# 未命名文章 1\n\n', 'theme': 'blue_glow'}]
+        self.articles = [{'title': '未命名文章 1', 'content': '# 未命名文章 1\n\n', 'theme': 'default'}]
         self.current_article_index = 0
         self._refresh_article_list()
         self._load_article_content(self.current_article_index)
@@ -296,70 +333,89 @@ class MainWindow(QMainWindow):
         self._load_article_content(self.current_article_index)
 
     def _crawl_article(self):
-        """从网页抓取内容并生成新文章。"""
+        """启动异步抓取文章的流程。"""
         dialog = CrawlDialog(self)
         if dialog.exec_() != QDialog.Accepted:
             return
 
         url, system_prompt = dialog.get_data()
-        self.log.info(f"Starting crawl for url: {url}")
+        self.log.info(f"Starting async crawl for url: {url}")
 
-        status_dialog = StatusDialog(title="文章生成中", parent=self)
-        status_dialog.show()
-        QApplication.processEvents()
+        # 禁用主窗口的按钮，防止用户在处理时进行其他操作
+        self.set_ui_enabled(False)
 
-        try:
-            # 1. 抓取内容
-            status_dialog.update_status("正在从网页抓取内容...", is_finished=False)
-            crawler = Crawler()
-            markdown_content, error = crawler.fetch(url)
-            if error:
-                raise Exception(f"抓取失败: {error}")
+        self.status_dialog = StatusDialog(title="文章生成中", parent=self)
+        self.status_dialog.show()
 
-            # 2. 调用LLM处理
-            status_dialog.update_status("正在由AI处理内容...", is_finished=False)
-            llm_processor = LLMProcessor()
-            processed_content, error = llm_processor.process_content(markdown_content, system_prompt)
-            if error:
-                raise Exception(f"AI处理失败: {error}")
+        # 1. 创建线程和Worker
+        self.thread = QThread()
+        self.worker = CrawlWorker(url, system_prompt)
+        self.worker.moveToThread(self.thread)
 
-            # 3. 创建新文章
-            title = self.parser.parse_markdown(processed_content).get('title', os.path.basename(url))
-            new_article = {
-                'title': title,
-                'content': processed_content,
-                'theme': 'default'
-            }
+        # 2. 连接信号和槽
+        self.thread.started.connect(self.worker.run)
+        self.worker.progress.connect(self.on_crawl_progress)
+        self.worker.finished.connect(self.on_crawl_finished)
+        
+        # 3. 启动线程
+        self.thread.start()
+
+    def on_crawl_progress(self, message):
+        """更新状态对话框的进度信息。"""
+        self.status_dialog.update_status(message, is_finished=False)
+
+    def on_crawl_finished(self, success, result):
+        """处理抓取完成后的结果。"""
+        if success:
+            new_article = result
             self.articles.append(new_article)
             self.current_article_index = len(self.articles) - 1
             self._refresh_article_list()
             self._load_article_content(self.current_article_index)
-            
-            status_dialog.update_status("文章生成成功！", is_finished=True)
-            self.log.info(f"Successfully crawled and processed article from {url}")
+            self.log.info(f"Successfully crawled and processed article.")
+            self.status_dialog.update_status("文章生成成功！", is_finished=True)
+            # 播放系统提示音
+            winsound.MessageBeep(winsound.MB_OK) # 播放默认系统提示音
+        else:
+            error_message = result
+            self.log.error(f"Failed to crawl and process article: {error_message}")
+            self.status_dialog.update_status(error_message, is_finished=True)
+        
+        # 清理线程和worker
+        self.thread.quit()
+        self.thread.wait()
+        self.thread.deleteLater()
+        self.worker.deleteLater()
 
-        except Exception as e:
-            self.log.error(f"Failed to crawl and process article: {e}", exc_info=True)
-            status_dialog.update_status(f"操作失败: {e}", is_finished=True)
+        # 重新启用UI
+        self.set_ui_enabled(True)
 
+    def set_ui_enabled(self, enabled):
+        """启用或禁用主窗口的UI元素。"""
+        self.menuBar().setEnabled(enabled)
+        # 可以在这里添加其他需要禁用/启用的控件
+        # 例如，左侧面板的按钮
+        for button in self.findChildren(QPushButton):
+            button.setEnabled(enabled)
 
-    def _remove_article(self):
-        """删除当前选中的文章。"""
-        if len(self.articles) <= 1:
-            QMessageBox.warning(self, "操作失败", "至少需要保留一篇文章。")
+    def handle_preview_scroll(self, percentage):
+        """专门处理来自JS的滚动信号，避免暴露整个MainWindow。"""
+        if self._is_syncing_scroll:
             return
             
+        editor_scrollbar = self.markdown_editor.verticalScrollBar()
+        max_val = editor_scrollbar.maximum()
+        
+        self._is_syncing_scroll = True
+        editor_scrollbar.setValue(int(max_val * percentage))
+        # 使用定时器在短暂延迟后重置标志，以允许反向同步
+        QTimer.singleShot(100, lambda: setattr(self, '_is_syncing_scroll', False))
+
+    def _remove_article(self):
+        """删除当前选中的文章，通过调用 _remove_article_at_index 实现。"""
         row = self.article_list_widget.currentRow()
         if row >= 0:
-            reply = QMessageBox.question(self, '确认删除', f"确定要删除文章 \"{self.articles[row]['title']}\" ?\n此操作不可撤销。",
-                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                del self.articles[row]
-                if self.current_article_index >= row:
-                    self.current_article_index = max(0, self.current_article_index - 1)
-                
-                self._refresh_article_list()
-                self._load_article_content(self.current_article_index)
+            self._remove_article_at_index(row)
 
     def _select_article(self, index):
         """当用户在列表中选择不同文章时触发。"""
@@ -375,6 +431,92 @@ class MainWindow(QMainWindow):
             self._load_article_content(index)
         finally:
             self._is_switching_articles = False
+
+    def _show_article_list_context_menu(self, position):
+        """显示文章列表的上下文菜单。"""
+        index = self.article_list_widget.indexAt(position)
+        if not index.isValid():
+            return
+
+        article_index = index.row()
+        current_article_count = len(self.articles)
+
+        menu = QMenu(self)
+
+        # 删除文章动作
+        delete_action = QAction("删除文章", self)
+        delete_action.triggered.connect(partial(self._remove_article_at_index, article_index))
+        # 只有当文章数量大于1时才允许删除
+        if current_article_count > 1:
+            menu.addAction(delete_action)
+        else:
+            delete_action.setEnabled(False) # 禁用删除动作
+
+        menu.addSeparator()
+
+        # 上移文章动作
+        move_up_action = QAction("上移", self)
+        move_up_action.triggered.connect(partial(self._move_article, article_index, -1))
+        if article_index > 0: # 如果不是第一篇文章，则允许上移
+            menu.addAction(move_up_action)
+        else:
+            move_up_action.setEnabled(False)
+
+        # 下移文章动作
+        move_down_action = QAction("下移", self)
+        move_down_action.triggered.connect(partial(self._move_article, article_index, 1))
+        if article_index < current_article_count - 1: # 如果不是最后一篇文章，则允许下移
+            menu.addAction(move_down_action)
+        else:
+            move_down_action.setEnabled(False)
+            
+        menu.exec_(self.article_list_widget.mapToGlobal(position))
+
+    def _remove_article_at_index(self, index_to_remove):
+        """删除指定索引的文章。"""
+        if len(self.articles) <= 1:
+            QMessageBox.warning(self, "操作失败", "至少需要保留一篇文章。")
+            return
+            
+        if 0 <= index_to_remove < len(self.articles):
+            reply = QMessageBox.question(self, '确认删除', f"确定要删除文章 \"{self.articles[index_to_remove]['title']}\" ?\n此操作不可撤销。",
+                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                del self.articles[index_to_remove]
+                
+                # 调整当前选中索引
+                if self.current_article_index == index_to_remove:
+                    # 如果删除了当前文章，则选择新的当前文章（如果没有，则选择上一篇或第一篇）
+                    self.current_article_index = max(0, min(index_to_remove, len(self.articles) - 1))
+                elif self.current_article_index > index_to_remove:
+                    self.current_article_index -= 1 # 如果当前索引在被删除文章之后，则向前移动一位
+
+                self._refresh_article_list()
+                self._load_article_content(self.current_article_index)
+                self.show_notification("文章已删除")
+
+    def _move_article(self, from_index, direction):
+        """
+        移动文章在列表中的位置。
+        :param from_index: 要移动的文章的当前索引。
+        :param direction: 移动方向，-1 为上移，1 为下移。
+        """
+        to_index = from_index + direction
+        if not (0 <= from_index < len(self.articles) and 0 <= to_index < len(self.articles)):
+            return # 越界
+
+        # 交换文章位置
+        self.articles[from_index], self.articles[to_index] = self.articles[to_index], self.articles[from_index]
+        
+        # 更新当前选中文章的索引（如果被移动的是当前文章或当前文章旁边的文章）
+        if self.current_article_index == from_index:
+            self.current_article_index = to_index
+        elif self.current_article_index == to_index:
+            self.current_article_index = from_index
+
+        self._refresh_article_list()
+        self._load_article_content(self.current_article_index)
+        self.show_notification("文章顺序已调整")
 
     def _load_article_content(self, index):
         """加载指定索引的文章内容到编辑器。"""
@@ -449,7 +591,6 @@ class MainWindow(QMainWindow):
                 self.articles.append(new_article)
                 self.log.info(f"Opened {file_path} as a new article.")
                 opened_count += 1
-
             except Exception as e:
                 self.log.error(f"Failed to open file {file_path} as new article: {e}", exc_info=True)
                 QMessageBox.warning(self, "打开失败", f"打开文件 {os.path.basename(file_path)} 失败: {e}")
@@ -571,89 +712,38 @@ class MainWindow(QMainWindow):
             self.log.info("Multi-article publish dialog cancelled by user.")
 
     def _execute_multi_article_publishing(self, all_articles_data):
-        """执行多图文的上传和发布草稿逻辑"""
+        """启动异步发布文章的流程。"""
+        self.log.info("Starting async publish process.")
         
-        status_dialog = StatusDialog(title="发布到微信", parent=self)
-        status_dialog.show()
-        QApplication.processEvents()
+        self.set_ui_enabled(False)
+        self.status_dialog = StatusDialog(title="发布到微信", parent=self)
+        self.status_dialog.show()
 
-        final_articles_for_wechat_api = []
-        uploaded_images_cache = {} # 用于避免重复上传
+        self.thread = QThread()
+        self.worker = PublishWorker(all_articles_data, self.use_template, self.current_mode)
+        self.worker.moveToThread(self.thread)
 
-        for i, article_data in enumerate(all_articles_data):
-            self.log.info(f"Processing article {i+1}/{len(all_articles_data)}: \"{article_data['title']}\"")
-            
-            markdown_content = article_data['markdown_content']
-            
-            # 增加模板拼接逻辑，与预览保持一致
-            if self.use_template:
-                header, footer = self.template_manager.get_templates()
-                full_markdown_content = f"{header}\n\n{markdown_content}\n\n{footer}"
-            else:
-                full_markdown_content = markdown_content
+        self.thread.started.connect(self.worker.run)
+        self.worker.progress.connect(self.on_publish_progress)
+        self.worker.finished.connect(self.on_publish_finished)
 
-            # 获取文章对应的主题进行渲染
-            article_theme = article_data.get('theme', 'default')
-            self.renderer.set_theme(article_theme)
-            html_content = self.renderer.render(full_markdown_content, mode=self.current_mode)
-            
-            title = article_data.get('title', '无标题')[:64]
-            digest = article_data.get('digest', '')
-            if not digest:
-                soup = BeautifulSoup(html_content, 'html.parser')
-                first_p = soup.find('p')
-                if first_p:
-                    digest = first_p.get_text()
-            digest = digest[:100]
+        self.thread.start()
 
-            cover_image_path = article_data.get('cover_image', '')
-            thumb_media_id, cover_url = self.wechat_api.get_thumb_media_id_and_url(cover_image_path)
-            
-            if not thumb_media_id:
-                error_msg = f"文章 \"{title}\" 获取封面图失败，发布中止。"
-                self.log.error(error_msg)
-                status_dialog.update_status(error_msg, is_finished=True)
-                return
+    def on_publish_progress(self, message):
+        """更新发布状态对话框。"""
+        self.status_dialog.update_status(message, is_finished=False)
 
-            if cover_image_path and cover_url:
-                uploaded_images_cache[cover_image_path] = cover_url
-
-            final_html_content = self.wechat_api.process_content_images(html_content, uploaded_images_cache)
-            
-            api_article_data = {
-                'title': title,
-                'author': article_data.get('author', self.wechat_api.default_author),
-                'digest': digest,
-                'content': final_html_content,
-                'thumb_media_id': thumb_media_id,
-                'content_source_url': article_data.get('content_source_url', ''),
-                'need_open_comment' : 1,
-                'show_cover_pic': 1
-            }
-            final_articles_for_wechat_api.append(api_article_data)
-
-        # 调用 `create_draft` 接口一次性提交所有文章
-        self.log.info("All articles processed. Attempting to create multi-article draft.")
-        media_id, error_message = self.wechat_api.create_draft(articles=final_articles_for_wechat_api)
+    def on_publish_finished(self, success, message):
+        """处理发布完成后的结果。"""
+        self.log.info(f"Publish process finished. Success: {success}. Message: {message}")
+        self.status_dialog.update_status(message, is_finished=True)
         
-        if media_id:
-            success_msg = f"包含 {len(final_articles_for_wechat_api)} 篇文章的草稿已成功发布！\nMedia ID: {media_id}"
-            self.log.info(success_msg)
-            
-            # 发布成功后，只在本地保存HTML文件
-            self.log.info("Archiving published HTML content locally.")
-            for i, article_data in enumerate(all_articles_data):
-                title = final_articles_for_wechat_api[i]['title']
-                final_html_content = final_articles_for_wechat_api[i]['content']
-                
-                # 只保存HTML，使用新的方法
-                self.storage_manager.save_html_archive(title, final_html_content)
-            
-            status_dialog.update_status(success_msg + "\n\n所有文章的HTML内容均已在本地存档。", is_finished=True)
-        else:
-            error_msg = f"多图文草稿发布失败: {error_message}"
-            self.log.error(error_msg)
-            status_dialog.update_status(error_msg, is_finished=True)
+        self.thread.quit()
+        self.thread.wait()
+        self.thread.deleteLater()
+        self.worker.deleteLater()
+
+        self.set_ui_enabled(True)
 
     def _show_about_dialog(self):
         """显示关于对话框"""
@@ -678,6 +768,13 @@ class MainWindow(QMainWindow):
         self.log.info(f"Template usage set to: {self.use_template}")
         self._update_preview()
 
+    def _on_theme_selected(self):
+        """当一个主题菜单项被选中时调用。"""
+        action = self.sender()
+        if action and action.isChecked():
+            theme_name = action.data()
+            self._change_theme(theme_name)
+
     def _change_theme(self, theme_name):
         """切换当前文章的渲染主题并更新预览"""
         if 0 <= self.current_article_index < len(self.articles):
@@ -694,8 +791,7 @@ class MainWindow(QMainWindow):
 
         theme_name = self.articles[self.current_article_index].get('theme', 'default')
         for action in self.theme_group.actions():
-            action_theme_name = action.text().replace(" ", "_").lower()
-            if action_theme_name == theme_name:
+            if action.data() == theme_name:
                 action.setChecked(True)
                 break
 
@@ -703,9 +799,13 @@ class MainWindow(QMainWindow):
         """打开设置对话框。"""
         dialog = SettingsDialog(parent=self)
         if dialog.exec_() == QDialog.Accepted:
-            # 重新实例化API类以加载新配置
-            self.wechat_api = WeChatAPI()
-            self.log.info("Settings saved and configuration reloaded.")
+            self.log.info("Settings saved. Reloading configurations...")
+            self.wechat_api.reload_config()
+            # LLMProcessor is instantiated within the worker, so it will get the new config on the next run.
+            # If we had a persistent LLMProcessor instance here, we would call:
+            # self.llm_processor.reload_config()
+            self.log.info("Configurations reloaded.")
+
 
     # --- Scroll Synchronization Methods ---
 
@@ -730,20 +830,6 @@ class MainWindow(QMainWindow):
         # 使用定时器在短暂延迟后重置标志，以允许反向同步
         QTimer.singleShot(100, lambda: setattr(self, '_is_syncing_scroll', False))
 
-    @pyqtSlot(float)
-    def on_preview_scrolled(self, percentage):
-        """当预览区滚动时（由JS调用），同步编辑器。"""
-        if self._is_syncing_scroll:
-            return
-            
-        editor_scrollbar = self.markdown_editor.verticalScrollBar()
-        max_val = editor_scrollbar.maximum()
-        
-        self._is_syncing_scroll = True
-        editor_scrollbar.setValue(int(max_val * percentage))
-        # 使用定时器在短暂延迟后重置标志，以允许反向同步
-        QTimer.singleShot(100, lambda: setattr(self, '_is_syncing_scroll', False))
-
     def _toggle_mode(self):
         """切换亮色/暗黑模式。"""
         if self.current_mode == "light":
@@ -760,142 +846,181 @@ class MainWindow(QMainWindow):
         """更新模式切换按钮的文本和样式。"""
         if self.current_mode == "dark":
             self.mode_toggle_btn.setText("暗黑")
-            self.mode_toggle_btn.setStyleSheet("QPushButton { background-color: #555; color: white; border: 1px solid #777; border-radius: 5px; }"
+            self.mode_toggle_btn.setStyleSheet("QPushButton { background-color: #555; color: white; border: 1px solid #777; border-radius: 5px; padding: 5px 10px; }"
                                                "QPushButton:hover { background-color: #666; }")
         else:
             self.mode_toggle_btn.setText("明亮")
-            self.mode_toggle_btn.setStyleSheet("QPushButton { background-color: #eee; color: black; border: 1px solid #ccc; border-radius: 5px; }"
+            self.mode_toggle_btn.setStyleSheet("QPushButton { background-color: #eee; color: black; border: 1px solid #ccc; border-radius: 5px; padding: 5px 10px; }"
                                                "QPushButton:hover { background-color: #ddd; }")
 
     def _apply_mode_styles(self):
         """应用当前模式的样式到主窗口和Markdown编辑器，并美化整体布局。"""
+        font_family = "'Microsoft YaHei UI', 'Segoe UI', 'San Francisco', 'Helvetica Neue', 'Arial', sans-serif"
+        
         if self.current_mode == "dark":
-            self.setStyleSheet("""
-                QMainWindow {
-                    background-color: #2e2e2e;
-                    color: #f0f0f0;
-                }
-                QSplitter::handle {
-                    background-color: #555;
-                }
-                QListWidget {
-                    background-color: #3e3e3e;
-                    color: #f0f0f0;
-                    border: 1px solid #555;
-                    border-radius: 5px; /* Subtle rounded corners */
-                }
-                QListWidget::item:selected {
-                    background-color: #555;
-                    color: white;
-                }
-                QPushButton {
-                    background-color: #444;
-                    color: #f0f0f0;
-                    border: 1px solid #666;
+            # 暗黑模式样式
+            palette = {
+                "base": "#2c3e50",
+                "background": "#34495e",
+                "foreground": "#ecf0f1",
+                "primary": "#3498db",
+                "secondary": "#95a5a6",
+                "border": "#2c3e50",
+                "hover": "#46627f",
+                "selected_bg": "#2980b9",
+                "editor_bg": "#2b2b2b"
+            }
+            
+            self.setStyleSheet(f"""
+                QMainWindow, QDialog {{
+                    background-color: {palette['base']};
+                    color: {palette['foreground']};
+                    font-family: {font_family};
+                }}
+                QSplitter::handle {{
+                    background-color: {palette['background']};
+                    width: 4px;
+                }}
+                QListWidget {{
+                    background-color: {palette['background']};
+                    color: {palette['foreground']};
+                    border: 1px solid {palette['border']};
                     border-radius: 5px;
+                }}
+                QListWidget::item {{
+                    padding: 8px;
+                }}
+                QListWidget::item:selected {{
+                    background-color: {palette['selected_bg']};
+                    color: white;
+                    border-radius: 3px;
+                }}
+                QPushButton {{
+                    background-color: {palette['primary']};
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 12px;
+                    font-weight: 500;
+                }}
+                QPushButton:hover {{
+                    background-color: {palette['hover']};
+                }}
+                QLabel {{
+                    color: {palette['foreground']};
+                }}
+                QMenuBar, QMenu {{
+                    background-color: {palette['base']};
+                    color: {palette['foreground']};
+                    border-bottom: 1px solid {palette['border']};
+                }}
+                QMenuBar::item:selected, QMenu::item:selected {{
+                    background-color: {palette['hover']};
+                }}
+                QLineEdit, QTextEdit {{
+                    background-color: {palette['editor_bg']};
+                    color: {palette['foreground']};
+                    border: 1px solid {palette['border']};
+                    border-radius: 4px;
                     padding: 5px;
-                }
-                QPushButton:hover {
-                    background-color: #555;
-                }
-                QLabel {
-                    color: #f0f0f0;
-                }
-                QMenuBar {
-                    background-color: #2e2e2e;
-                    color: #f0f0f0;
-                }
-                QMenuBar::item:selected {
-                    background-color: #555;
-                }
-                QMenu {
-                    background-color: #2e2e2e;
-                    color: #f0f0f0;
-                    border: 1px solid #555;
-                }
-                QMenu::item:selected {
-                    background-color: #555;
-                }
-            """)
-            self.markdown_editor.setStyleSheet("""
-                QTextEdit {
-                    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                    line-height: 1.5;
-                    background-color: #3e3e3e;
-                    color: #f0f0f0;
-                    border: 1px solid #555;
-                }
+                }}
             """)
         else: # light mode
-            self.setStyleSheet("""
-                QMainWindow {
-                    background-color: #f0f0f0;
-                    color: #333;
-                }
-                QSplitter::handle {
-                    background-color: #ccc;
-                }
-                QListWidget {
-                    background-color: white;
-                    color: #333;
-                    border: 1px solid #ccc;
+            # 亮色模式样式
+            palette = {
+                "base": "#f4f6f8",
+                "background": "#ffffff",
+                "foreground": "#2c3e50",
+                "primary": "#2980b9",
+                "secondary": "#7f8c8d",
+                "border": "#e0e0e0",
+                "hover": "#3498db",
+                "selected_bg": "#e1eef6",
+                "editor_bg": "#ffffff"
+            }
+            
+            self.setStyleSheet(f"""
+                QMainWindow, QDialog {{
+                    background-color: {palette['base']};
+                    color: {palette['foreground']};
+                    font-family: {font_family};
+                }}
+                QSplitter::handle {{
+                    background-color: {palette['border']};
+                    width: 4px;
+                }}
+                QListWidget {{
+                    background-color: {palette['background']};
+                    color: {palette['foreground']};
+                    border: 1px solid {palette['border']};
                     border-radius: 5px;
-                }
-                QListWidget::item:selected {
-                    background-color: #e0e0e0;
-                    color: black;
-                }
-                QPushButton {
-                    background-color: #f5f5f5;
-                    color: #333;
-                    border: 1px solid #ddd;
-                    border-radius: 5px;
+                }}
+                QListWidget::item {{
+                    padding: 8px;
+                }}
+                QListWidget::item:selected {{
+                    background-color: {palette['selected_bg']};
+                    color: {palette['primary']};
+                    border-radius: 3px;
+                }}
+                QPushButton {{
+                    background-color: {palette['primary']};
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px 12px;
+                    font-weight: 500;
+                }}
+                QPushButton:hover {{
+                    background-color: {palette['hover']};
+                }}
+                QLabel {{
+                    color: {palette['foreground']};
+                }}
+                QMenuBar, QMenu {{
+                    background-color: {palette['background']};
+                    color: {palette['foreground']};
+                    border-bottom: 1px solid {palette['border']};
+                }}
+                QMenuBar::item:selected, QMenu::item:selected {{
+                    background-color: {palette['selected_bg']};
+                    color: {palette['primary']};
+                }}
+                QLineEdit, QTextEdit {{
+                    background-color: {palette['editor_bg']};
+                    color: {palette['foreground']};
+                    border: 1px solid {palette['border']};
+                    border-radius: 4px;
                     padding: 5px;
-                }
-                QPushButton:hover {
-                    background-color: #e5e5e5;
-                }
-                QLabel {
-                    color: #333;
-                }
-                QMenuBar {
-                    background-color: #f0f0f0;
-                    color: #333;
-                }
-                QMenuBar::item:selected {
-                    background-color: #ddd;
-                }
-                QMenu {
-                    background-color: #f0f0f0;
-                    color: #333;
-                    border: 1px solid #ccc;
-                }
-                QMenu::item:selected {
-                    background-color: #ddd;
-                }
+                }}
             """)
-            self.markdown_editor.setStyleSheet("""
-                QTextEdit {
-                    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                    line-height: 1.5;
-                    background-color: white;
-                    color: black;
-                    border: 1px solid #ccc;
-                }
-            """)
+        
+        # 对模式切换按钮进行特殊处理
+        self._update_mode_toggle_button()
+
+class ScrollSyncHandler(QObject):
+    """一个专门用于处理JS滚动同步的对象，避免暴露整个MainWindow。"""
+    def __init__(self, main_window, parent=None):
+        super().__init__(parent)
+        self._main_window = main_window
+
+    @pyqtSlot(float)
+    def on_preview_scrolled(self, percentage):
+        """当预览区滚动时，调用主窗口的处理方法。"""
+        self._main_window.handle_preview_scroll(percentage)
 
 class CustomWebEngineView(QWebEngineView):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.html_content = ""
-        # 设置页面背景为透明，以便HTML中的body背景色可以显示出来
         self.page().setBackgroundColor(QColor("transparent"))
         
-        # 为滚动同步设置WebChannel
         self.channel = QWebChannel(self.page())
         self.page().setWebChannel(self.channel)
-        # 将父窗口（MainWindow）注册为可从JS调用的对象
-        self.channel.registerObject("scroll_handler", parent)
+        
+        # 创建并注册一个专用的处理器对象
+        self.scroll_handler = ScrollSyncHandler(parent)
+        self.channel.registerObject("scroll_handler", self.scroll_handler)
 
     def set_html_content(self, html):
         self.html_content = html
@@ -930,6 +1055,11 @@ class CustomWebEngineView(QWebEngineView):
     def contextMenuEvent(self, event):
         # 创建一个空的右键菜单
         menu = QMenu(self)
+
+        # 添加“复制源代码”选项
+        copy_source_action = QAction("复制源代码", self)
+        copy_source_action.triggered.connect(self.copy_source)
+        menu.addAction(copy_source_action)
         
         # 添加“显示源代码”选项
         show_source_action = QAction("显示源代码", self)
@@ -942,6 +1072,14 @@ class CustomWebEngineView(QWebEngineView):
     def show_source(self):
         dialog = SourceDialog(self.html_content, self)
         dialog.exec_()
+
+    def copy_source(self):
+        """复制HTML源代码到剪贴板，并显示通知。"""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.html_content)
+        # self.parent() 在这里是 MainWindow 实例
+        if self.parent() and hasattr(self.parent(), 'show_notification'):
+            self.parent().show_notification("已复制到剪贴板")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
