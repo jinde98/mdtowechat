@@ -7,7 +7,7 @@ from functools import partial
 import os
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 import logging
-from PyQt5.QtCore import Qt, QUrl, QSize, pyqtSlot, QTimer
+from PyQt5.QtCore import Qt, QUrl, QSize, pyqtSlot, QTimer, QObject, QThread, pyqtSignal
 from PyQt5.QtWebChannel import QWebChannel
 from PyQt5.QtGui import QColor, QFont, QIcon
 from bs4 import BeautifulSoup
@@ -126,6 +126,8 @@ class MainWindow(QMainWindow):
         # Article List
         self.article_list_widget = QListWidget()
         self.article_list_widget.currentRowChanged.connect(self._select_article)
+        self.article_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.article_list_widget.customContextMenuRequested.connect(self._show_article_list_context_menu)
         # Increase font size for article titles
         font = QFont()
         font.setPointSize(11) 
@@ -296,7 +298,7 @@ class MainWindow(QMainWindow):
         self._load_article_content(self.current_article_index)
 
     def _crawl_article(self):
-        """从网页抓取内容并生成新文章。"""
+        """从网页抓取内容并生成新文章（异步）。"""
         dialog = CrawlDialog(self)
         if dialog.exec_() != QDialog.Accepted:
             return
@@ -304,43 +306,23 @@ class MainWindow(QMainWindow):
         url, system_prompt = dialog.get_data()
         self.log.info(f"Starting crawl for url: {url}")
 
-        status_dialog = StatusDialog(title="文章生成中", parent=self)
-        status_dialog.show()
+        self.status_dialog = StatusDialog(title="文章生成中", parent=self)
+        self.status_dialog.show()
         QApplication.processEvents()
 
-        try:
-            # 1. 抓取内容
-            status_dialog.update_status("正在从网页抓取内容...", is_finished=False)
-            crawler = Crawler()
-            markdown_content, error = crawler.fetch(url)
-            if error:
-                raise Exception(f"抓取失败: {error}")
+        # 1. 创建线程和Worker
+        self.crawl_thread = QThread()
+        self.crawl_worker = CrawlWorker(url, system_prompt)
+        self.crawl_worker.moveToThread(self.crawl_thread)
 
-            # 2. 调用LLM处理
-            status_dialog.update_status("正在由AI处理内容...", is_finished=False)
-            llm_processor = LLMProcessor()
-            processed_content, error = llm_processor.process_content(markdown_content, system_prompt)
-            if error:
-                raise Exception(f"AI处理失败: {error}")
+        # 2. 连接信号和槽
+        self.crawl_worker.progress_updated.connect(self._on_crawl_progress)
+        self.crawl_worker.finished.connect(self._on_crawl_finished)
+        self.crawl_thread.started.connect(self.crawl_worker.run)
 
-            # 3. 创建新文章
-            title = self.parser.parse_markdown(processed_content).get('title', os.path.basename(url))
-            new_article = {
-                'title': title,
-                'content': processed_content,
-                'theme': 'default'
-            }
-            self.articles.append(new_article)
-            self.current_article_index = len(self.articles) - 1
-            self._refresh_article_list()
-            self._load_article_content(self.current_article_index)
-            
-            status_dialog.update_status("文章生成成功！", is_finished=True)
-            self.log.info(f"Successfully crawled and processed article from {url}")
-
-        except Exception as e:
-            self.log.error(f"Failed to crawl and process article: {e}", exc_info=True)
-            status_dialog.update_status(f"操作失败: {e}", is_finished=True)
+        # 3. 启动线程
+        self.crawl_thread.start()
+        self.log.info("Crawl thread started.")
 
 
     def _remove_article(self):
@@ -571,89 +553,134 @@ class MainWindow(QMainWindow):
             self.log.info("Multi-article publish dialog cancelled by user.")
 
     def _execute_multi_article_publishing(self, all_articles_data):
-        """执行多图文的上传和发布草稿逻辑"""
-        
-        status_dialog = StatusDialog(title="发布到微信", parent=self)
-        status_dialog.show()
+        """通过启动后台线程来执行多图文的上传和发布草稿逻辑"""
+        self.status_dialog = StatusDialog(title="发布到微信", parent=self)
+        self.status_dialog.show()
         QApplication.processEvents()
 
-        final_articles_for_wechat_api = []
-        uploaded_images_cache = {} # 用于避免重复上传
+        # 1. 创建线程和Worker
+        self.publish_thread = QThread()
+        self.publish_worker = PublishWorker(
+            articles_data=all_articles_data,
+            wechat_api=self.wechat_api,
+            renderer=self.renderer,
+            template_manager=self.template_manager,
+            storage_manager=self.storage_manager,
+            use_template=self.use_template,
+            current_mode=self.current_mode
+        )
+        self.publish_worker.moveToThread(self.publish_thread)
 
-        for i, article_data in enumerate(all_articles_data):
-            self.log.info(f"Processing article {i+1}/{len(all_articles_data)}: \"{article_data['title']}\"")
-            
-            markdown_content = article_data['markdown_content']
-            
-            # 增加模板拼接逻辑，与预览保持一致
-            if self.use_template:
-                header, footer = self.template_manager.get_templates()
-                full_markdown_content = f"{header}\n\n{markdown_content}\n\n{footer}"
-            else:
-                full_markdown_content = markdown_content
-
-            # 获取文章对应的主题进行渲染
-            article_theme = article_data.get('theme', 'default')
-            self.renderer.set_theme(article_theme)
-            html_content = self.renderer.render(full_markdown_content, mode=self.current_mode)
-            
-            title = article_data.get('title', '无标题')[:64]
-            digest = article_data.get('digest', '')
-            if not digest:
-                soup = BeautifulSoup(html_content, 'html.parser')
-                first_p = soup.find('p')
-                if first_p:
-                    digest = first_p.get_text()
-            digest = digest[:100]
-
-            cover_image_path = article_data.get('cover_image', '')
-            thumb_media_id, cover_url = self.wechat_api.get_thumb_media_id_and_url(cover_image_path)
-            
-            if not thumb_media_id:
-                error_msg = f"文章 \"{title}\" 获取封面图失败，发布中止。"
-                self.log.error(error_msg)
-                status_dialog.update_status(error_msg, is_finished=True)
-                return
-
-            if cover_image_path and cover_url:
-                uploaded_images_cache[cover_image_path] = cover_url
-
-            final_html_content = self.wechat_api.process_content_images(html_content, uploaded_images_cache)
-            
-            api_article_data = {
-                'title': title,
-                'author': article_data.get('author', self.wechat_api.default_author),
-                'digest': digest,
-                'content': final_html_content,
-                'thumb_media_id': thumb_media_id,
-                'content_source_url': article_data.get('content_source_url', ''),
-                'need_open_comment' : 1,
-                'show_cover_pic': 1
-            }
-            final_articles_for_wechat_api.append(api_article_data)
-
-        # 调用 `create_draft` 接口一次性提交所有文章
-        self.log.info("All articles processed. Attempting to create multi-article draft.")
-        media_id, error_message = self.wechat_api.create_draft(articles=final_articles_for_wechat_api)
+        # 2. 连接信号和槽
+        self.publish_worker.progress_updated.connect(self._on_publish_progress)
+        self.publish_worker.finished.connect(self._on_publish_finished)
+        self.publish_thread.started.connect(self.publish_worker.run)
         
-        if media_id:
-            success_msg = f"包含 {len(final_articles_for_wechat_api)} 篇文章的草稿已成功发布！\nMedia ID: {media_id}"
-            self.log.info(success_msg)
-            
-            # 发布成功后，只在本地保存HTML文件
-            self.log.info("Archiving published HTML content locally.")
-            for i, article_data in enumerate(all_articles_data):
-                title = final_articles_for_wechat_api[i]['title']
-                final_html_content = final_articles_for_wechat_api[i]['content']
+        # 3. 启动线程
+        self.publish_thread.start()
+        self.log.info("Publishing thread started.")
+
+    def _on_publish_progress(self, message):
+        if self.status_dialog:
+            self.status_dialog.update_status(message, is_finished=False)
+
+    def _on_publish_finished(self, success, message):
+        QApplication.beep()
+        if self.status_dialog:
+            self.status_dialog.update_status(message, is_finished=True)
+        
+        # 清理线程和worker
+        self.publish_thread.quit()
+        self.publish_thread.wait()
+        self.publish_worker.deleteLater()
+        self.publish_thread.deleteLater()
+        self.log.info("Publish thread and worker cleaned up.")
+
+    def _on_crawl_progress(self, message):
+        if self.status_dialog:
+            self.status_dialog.update_status(message, is_finished=False)
+
+    def _on_crawl_finished(self, success, result):
+        QApplication.beep()
+        if self.status_dialog:
+            if success:
+                # result 是一个包含新文章数据的字典
+                title = self.parser.parse_markdown(result['content']).get('title', os.path.basename(result['url']))
+                new_article = {
+                    'title': title,
+                    'content': result['content'],
+                    'theme': 'default'
+                }
+                self.articles.append(new_article)
+                self.current_article_index = len(self.articles) - 1
+                self._refresh_article_list()
+                self._load_article_content(self.current_article_index)
                 
-                # 只保存HTML，使用新的方法
-                self.storage_manager.save_html_archive(title, final_html_content)
+                final_message = "文章生成成功！"
+                self.log.info(f"Successfully crawled and processed article from {result['url']}")
+            else:
+                # result 是错误信息字符串
+                final_message = f"操作失败: {result}"
+                self.log.error(f"Failed to crawl and process article: {result}")
             
-            status_dialog.update_status(success_msg + "\n\n所有文章的HTML内容均已在本地存档。", is_finished=True)
-        else:
-            error_msg = f"多图文草稿发布失败: {error_message}"
-            self.log.error(error_msg)
-            status_dialog.update_status(error_msg, is_finished=True)
+            self.status_dialog.update_status(final_message, is_finished=True)
+
+        # 清理线程和worker
+        self.crawl_thread.quit()
+        self.crawl_thread.wait()
+        self.crawl_worker.deleteLater()
+        self.crawl_thread.deleteLater()
+        self.log.info("Crawl thread and worker cleaned up.")
+
+    def _show_article_list_context_menu(self, position):
+        """显示文章列表的右键上下文菜单。"""
+        item = self.article_list_widget.itemAt(position)
+        if not item:
+            return
+
+        row = self.article_list_widget.row(item)
+
+        menu = QMenu()
+        move_up_action = QAction("向上移动", self)
+        move_down_action = QAction("向下移动", self)
+        delete_action = QAction("删除文章", self)
+
+        # 根据位置决定是否禁用操作
+        if row == 0:
+            move_up_action.setEnabled(False)
+        if row == self.article_list_widget.count() - 1:
+            move_down_action.setEnabled(False)
+
+        move_up_action.triggered.connect(lambda: self._move_article_up(row))
+        move_down_action.triggered.connect(lambda: self._move_article_down(row))
+        delete_action.triggered.connect(self._remove_article)
+
+        menu.addAction(move_up_action)
+        menu.addAction(move_down_action)
+        menu.addSeparator()
+        menu.addAction(delete_action)
+
+        menu.exec_(self.article_list_widget.mapToGlobal(position))
+
+    def _move_article_up(self, row):
+        """将指定索引的文章向上移动一位。"""
+        if row > 0:
+            # 交换数据
+            self.articles[row], self.articles[row - 1] = self.articles[row - 1], self.articles[row]
+            # 更新当前选中的索引
+            self.current_article_index = row - 1
+            # 刷新UI
+            self._refresh_article_list()
+
+    def _move_article_down(self, row):
+        """将指定索引的文章向下移动一位。"""
+        if row < len(self.articles) - 1:
+            # 交换数据
+            self.articles[row], self.articles[row + 1] = self.articles[row + 1], self.articles[row]
+            # 更新当前选中的索引
+            self.current_article_index = row + 1
+            # 刷新UI
+            self._refresh_article_list()
 
     def _show_about_dialog(self):
         """显示关于对话框"""
@@ -883,6 +910,139 @@ class MainWindow(QMainWindow):
                     border: 1px solid #ccc;
                 }
             """)
+
+# --- 异步发布 Worker ---
+class PublishWorker(QObject):
+    progress_updated = pyqtSignal(str)
+    finished = pyqtSignal(bool, str)
+
+    def __init__(self, articles_data, wechat_api, renderer, template_manager, storage_manager, use_template, current_mode):
+        super().__init__()
+        self.articles_data = articles_data
+        self.wechat_api = wechat_api
+        self.renderer = renderer
+        self.template_manager = template_manager
+        self.storage_manager = storage_manager
+        self.use_template = use_template
+        self.current_mode = current_mode
+        self.log = logging.getLogger("PublishWorker")
+
+    def run(self):
+        """执行多图文的上传和发布草稿逻辑"""
+        try:
+            final_articles_for_wechat_api = []
+            uploaded_images_cache = {}
+
+            for i, article_data in enumerate(self.articles_data):
+                title = article_data.get('title', '无标题')
+                progress_message = f"正在处理文章 {i+1}/{len(self.articles_data)}: \"{title}\""
+                self.log.info(progress_message)
+                self.progress_updated.emit(progress_message)
+
+                markdown_content = article_data['markdown_content']
+                if self.use_template:
+                    header, footer = self.template_manager.get_templates()
+                    full_markdown_content = f"{header}\n\n{markdown_content}\n\n{footer}"
+                else:
+                    full_markdown_content = markdown_content
+                
+                article_theme = article_data.get('theme', 'default')
+                self.renderer.set_theme(article_theme)
+                html_content = self.renderer.render(full_markdown_content, mode=self.current_mode)
+
+                digest = article_data.get('digest', '')
+                if not digest:
+                    soup = BeautifulSoup(html_content, 'html.parser')
+                    first_p = soup.find('p')
+                    if first_p:
+                        digest = first_p.get_text()
+                digest = digest[:100]
+
+                self.progress_updated.emit(f"正在上传 \"{title}\" 的封面图...")
+                cover_image_path = article_data.get('cover_image', '')
+                thumb_media_id, cover_url = self.wechat_api.get_thumb_media_id_and_url(cover_image_path)
+
+                if not thumb_media_id:
+                    raise Exception(f"文章 \"{title}\" 获取封面图失败。")
+
+                if cover_image_path and cover_url:
+                    uploaded_images_cache[cover_image_path] = cover_url
+
+                self.progress_updated.emit(f"正在上传 \"{title}\" 的正文图片...")
+                final_html_content = self.wechat_api.process_content_images(html_content, uploaded_images_cache)
+
+                api_article_data = {
+                    'title': title[:64],
+                    'author': article_data.get('author', self.wechat_api.default_author),
+                    'digest': digest,
+                    'content': final_html_content,
+                    'thumb_media_id': thumb_media_id,
+                    'content_source_url': article_data.get('content_source_url', ''),
+                    'need_open_comment': 1,
+                    'show_cover_pic': 1
+                }
+                final_articles_for_wechat_api.append(api_article_data)
+
+            self.progress_updated.emit("所有文章处理完毕，正在创建草稿...")
+            self.log.info("All articles processed. Attempting to create multi-article draft.")
+            media_id, error_message = self.wechat_api.create_draft(articles=final_articles_for_wechat_api)
+
+            if media_id:
+                success_msg = f"包含 {len(final_articles_for_wechat_api)} 篇文章的草稿已成功发布！\nMedia ID: {media_id}"
+                self.log.info(success_msg)
+                
+                self.progress_updated.emit("发布成功！正在本地存档HTML文件...")
+                for i, article_data in enumerate(self.articles_data):
+                    title = final_articles_for_wechat_api[i]['title']
+                    final_html_content = final_articles_for_wechat_api[i]['content']
+                    self.storage_manager.save_html_archive(title, final_html_content)
+                
+                self.finished.emit(True, success_msg + "\n\n所有文章的HTML内容均已在本地存档。")
+            else:
+                raise Exception(f"多图文草稿发布失败: {error_message}")
+
+        except Exception as e:
+            error_msg = f"发布过程中出现错误: {e}"
+            self.log.error(error_msg, exc_info=True)
+            self.finished.emit(False, error_msg)
+
+class CrawlWorker(QObject):
+    progress_updated = pyqtSignal(str)
+    finished = pyqtSignal(bool, object) # bool: success, object: result dict or error string
+
+    def __init__(self, url, system_prompt):
+        super().__init__()
+        self.url = url
+        self.system_prompt = system_prompt
+        self.log = logging.getLogger("CrawlWorker")
+
+    def run(self):
+        try:
+            # 1. 抓取内容
+            self.progress_updated.emit("正在从网页抓取内容...")
+            crawler = Crawler()
+            markdown_content, error = crawler.fetch(self.url)
+            if error:
+                raise Exception(f"抓取失败: {error}")
+
+            # 2. 调用LLM处理
+            self.progress_updated.emit("正在由AI处理内容...")
+            llm_processor = LLMProcessor()
+            processed_content, error = llm_processor.process_content(markdown_content, self.system_prompt)
+            if error:
+                raise Exception(f"AI处理失败: {error}")
+
+            # 3. 成功，发送结果
+            result = {
+                'url': self.url,
+                'content': processed_content
+            }
+            self.finished.emit(True, result)
+
+        except Exception as e:
+            self.log.error(f"Failed to crawl and process article: {e}", exc_info=True)
+            self.finished.emit(False, str(e))
+
 
 class CustomWebEngineView(QWebEngineView):
     def __init__(self, parent=None):
