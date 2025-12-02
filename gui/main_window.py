@@ -452,68 +452,98 @@ class MainWindow(QMainWindow):
         if not (0 <= self.current_article_index < len(self.articles)):
             QMessageBox.warning(self, "保存失败", "没有可保存的文章。")
             return
-        self._save_single_article(self.current_article_index)
+
+        article = self.articles[self.current_article_index]
+        filepath = article.get('file_path')
+        title = article['title']
+
+        if not filepath:
+            suggested_filename = self.storage_manager._generate_filename(title, ".md")
+            filepath, _ = QFileDialog.getSaveFileName(
+                self, f"保存文章: {title}", suggested_filename, "Markdown Files (*.md);;All Files (*)"
+            )
+            if not filepath:
+                self.log.info(f"Save operation cancelled by user for article '{title}'.")
+                return
+
+        self._save_single_article_to_path(self.current_article_index, filepath)
 
     def _save_all_documents(self):
         """保存所有打开的文章。"""
         if not self.articles:
             QMessageBox.warning(self, "保存失败", "没有可保存的文章。")
             return
-        
+
         self.log.info("Attempting to save all articles.")
+        
+        # 检查是否有新文章（未保存过）
+        new_articles_indices = [i for i, article in enumerate(self.articles) if not article.get('file_path')]
+        
+        save_directory = None
+        if new_articles_indices:
+            # 如果有新文章，则弹窗一次让用户选择文件夹
+            save_directory = QFileDialog.getExistingDirectory(self, "选择新文章的保存文件夹", os.getcwd())
+            if not save_directory:
+                self.log.info("Save All operation cancelled by user because no directory was selected.")
+                QMessageBox.information(self, "操作取消", "未选择文件夹，全部保存操作已取消。")
+                return
+
         saved_count = 0
-        for i in range(len(self.articles)):
-            if self._save_single_article(i):
+        for i, article in enumerate(self.articles):
+            filepath = article.get('file_path')
+            
+            if not filepath:
+                # 这是新文章，使用选择的文件夹和默认文件名
+                if save_directory:
+                    filename = self.storage_manager._generate_filename(article['title'], ".md")
+                    filepath = os.path.join(save_directory, filename)
+                else:
+                    # 理论上不应该发生，因为我们已经检查过
+                    continue
+            
+            # 执行保存
+            if self._save_single_article_to_path(i, filepath):
                 saved_count += 1
         
         QMessageBox.information(self, "全部保存完成", f"成功保存 {saved_count} / {len(self.articles)} 篇文章。")
         self.log.info(f"Finished saving all articles. Saved {saved_count}/{len(self.articles)}.")
 
-    def _save_single_article(self, index):
+    def _save_single_article_to_path(self, index, filepath):
         """
-        保存指定索引的文章。
-        如果文章是新的，则提示用户选择保存路径。
-        返回 True 表示保存成功或用户已处理，返回 False 表示操作取消。
+        将指定索引的文章内容保存到指定的文件路径。
+        这是实际执行保存的核心函数。
+        返回 True 表示成功, False 表示失败。
         """
         if not (0 <= index < len(self.articles)):
             return False
 
         article = self.articles[index]
+        title = article['title']
+        
         # 确保内容是最新的（如果正在编辑的就是这篇）
         if index == self.current_article_index:
             markdown_content = self.markdown_editor.toPlainText()
             article['content'] = markdown_content
         else:
             markdown_content = article['content']
-            
-        title = article['title']
-        original_filepath = article.get('file_path')
 
         if not markdown_content.strip():
-            self.log.warning(f"Save cancelled for article '{title}': content is empty.")
-            # 对于“全部保存”，我们不弹出对话框，直接跳过
-            return True # 认为“空文章”这个状态已经被处理
-
-        filepath_to_save = original_filepath
-        if not filepath_to_save:
-            suggested_filename = self.storage_manager._generate_filename(title, ".md")
-            filepath_to_save, _ = QFileDialog.getSaveFileName(
-                self, f"保存文章: {title}", suggested_filename, "Markdown Files (*.md);;All Files (*)"
-            )
-            if not filepath_to_save:
-                self.log.info(f"Save operation cancelled by user for article '{title}'.")
-                return False # 用户取消
-            article['file_path'] = filepath_to_save
+            self.log.warning(f"Save cancelled for article '{title}' because content is empty.")
+            return True # 认为“空文章”这个状态已经被处理，不计为失败
 
         try:
-            self.storage_manager.save_markdown_file(filepath_to_save, markdown_content)
-            self.log.info(f"Article '{title}' saved to: {filepath_to_save}")
+            self.storage_manager.save_markdown_file(filepath, markdown_content)
+            self.log.info(f"Article '{title}' saved to: {filepath}")
+            
+            # 关键：保存成功后，更新文章数据中的文件路径
+            article['file_path'] = filepath
+            
             if index == self.current_article_index:
-                 self.setWindowTitle(f"微信公众号Markdown渲染发布系统 - {os.path.basename(filepath_to_save)}")
+                 self.setWindowTitle(f"微信公众号Markdown渲染发布系统 - {os.path.basename(filepath)}")
             return True
         except Exception as e:
-            self.log.error(f"Failed to save article '{title}' to {filepath_to_save}: {e}", exc_info=True)
-            QMessageBox.critical(self, "保存失败", f"保存文章 \"{title}\" 失败: {e}")
+            self.log.error(f"Failed to save article '{title}' to {filepath}: {e}", exc_info=True)
+            QMessageBox.critical(self, "保存失败", f"保存文章 \"{title}\" 到 \"{filepath}\" 失败: {e}")
             return False
 
 
@@ -1088,16 +1118,34 @@ class CustomWebEngineView(QWebEngineView):
         self.setHtml(full_html, baseUrl=QUrl.fromLocalFile(os.path.abspath(".")))
 
     def contextMenuEvent(self, event):
-        # 创建一个空的右键菜单
-        menu = QMenu(self)
+        # 创建一个标准的Web视图右键菜单
+        menu = self.page().createStandardContextMenu()
         
-        # 添加“显示源代码”选项
+        # --- 在菜单顶部添加自定义操作 ---
+        
+        # 1. 复制HTML内容
+        copy_html_action = QAction("复制渲染后的HTML", self)
+        copy_html_action.triggered.connect(self.copy_html_content)
+        menu.insertAction(menu.actions()[0], copy_html_action) # 插入到最前面
+
+        # 2. 显示源代码
         show_source_action = QAction("显示源代码", self)
         show_source_action.triggered.connect(self.show_source)
-        menu.addAction(show_source_action)
-        
+        menu.insertAction(menu.actions()[1], show_source_action) # 插入到第二个
+
+        # 3. 添加分隔符
+        menu.insertSeparator(menu.actions()[2])
+
         # 执行菜单
         menu.exec_(event.globalPos())
+
+    def copy_html_content(self):
+        """将渲染后的HTML内容复制到剪贴板。"""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.html_content)
+        # 可选：可以添加一个状态栏提示
+        # self.parent().statusBar().showMessage("HTML内容已复制到剪贴板", 2000)
+        logging.getLogger("MdToWeChat").info("Rendered HTML content copied to clipboard.")
 
     def show_source(self):
         dialog = SourceDialog(self.html_content, self)

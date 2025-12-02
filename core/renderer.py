@@ -68,7 +68,11 @@ class MarkdownRenderer:
         # 预处理文本，以修复常见问题并防止解析器崩溃
         # 1. 修复用户可能意外输入的 `<[...](...)` 或 `<![...](...)` 格式
         processed_text = re.sub(r'<!?(\[.*?\]\(.*?\))', r'\1', markdown_text)
-        # 2. 在相邻的不同类型列表之间添加换行符
+        
+        # 2. 在段落和列表之间添加换行符，以确保Markdown解析器能正确识别列表
+        processed_text = re.sub(r'([^\n])\n([ \t]*([\-\*\+]|\d+\.)\s)', r'\1\n\n\2', processed_text)
+
+        # 3. 在相邻的不同类型列表之间添加换行符
         processed_text = re.sub(r'([ \t]*[\-\*\+]\s.*\n)(?=[ \t]*\d+\.\s)', r'\1\n', processed_text)
         processed_text = re.sub(r'([ \t]*\d+\.\s.*\n)(?=[ \t]*[\-\*\+]\s)', r'\1\n', processed_text)
 
@@ -129,8 +133,12 @@ class MarkdownRenderer:
  
             for elem in soup.find_all(tag_name):
                 existing_style = elem.get('style', '')
-                # 强制覆盖颜色，确保模式切换生效
-                elem['style'] = f"color: {body_text_color}; {style}; {existing_style}".strip()
+                # 如果主题样式中已经包含 color 属性，则不强制覆盖
+                if 'color:' in style.lower():
+                    elem['style'] = f"{style}; {existing_style}".strip()
+                else:
+                    # 否则，应用主题样式和模式颜色
+                    elem['style'] = f"color: {body_text_color}; {style}; {existing_style}".strip()
 
         # 显式处理 img 标签的样式，确保其 max-width 等属性被应用
         if 'img' in self.theme:
@@ -158,18 +166,19 @@ class MarkdownRenderer:
             # 1. 创建macOS窗口容器
             container = soup.new_tag('div')
             container['style'] = (
-                "background: #2d2d2d; "
-                "border-radius: 8px; "
-                "box-shadow: 0 10px 20px rgba(0,0,0,0.19), 0 6px 6px rgba(0,0,0,0.23); "
-                "margin-bottom: 1.5em; "
+                "background: #1E1E1E; "
+                "border-radius: 5px; "
+                "box-shadow: rgba(0, 0, 0, 0.55) 0px 2px 10px; "
+                "margin-top: 10px; "
+                "margin-bottom: 10px; "
                 "overflow: hidden;"
             )
 
             # 2. 创建标题栏
             title_bar = soup.new_tag('div')
             title_bar['style'] = (
-                "height: 28px; "
-                "background: #e0e0e0; "
+                "height: 30px; "
+                "background-color: #1E1E1E; "
                 "display: flex; "
                 "align-items: center; "
                 "padding-left: 10px;"
@@ -191,12 +200,23 @@ class MarkdownRenderer:
             
             # 4. 创建代码内容区域
             content_area = soup.new_tag('div')
-            content_area['style'] = "padding: 15px; overflow-x: auto;"
+            content_area['style'] = (
+                "padding: 16px; "
+                "overflow-x: auto; "
+                "color: #DCDCDC; "
+                "font-family: Operator Mono, Consolas, Monaco, Menlo, monospace; "
+                "font-size: 12px;"
+            )
             
             # 5. 在文档中，用新容器替换掉旧的<pre>标签
             pre_tag.replace_with(container)
             
             # 6. 将原始的、完整的<pre>标签移动到新容器的内容区
+            # We need to apply some styles to the pre tag itself for scrollability
+            pre_tag['style'] = "overflow-x: auto; background: #1E1E1E; padding: 0; margin: 0; "
+            if pre_tag.code:
+                pre_tag.code['style'] = "font-family: inherit; font-size: inherit;"
+
             content_area.append(pre_tag)
             
             # 7. 组装窗口
