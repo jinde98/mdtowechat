@@ -3,17 +3,22 @@ import re
 from bs4 import BeautifulSoup
 import os
 import uuid
-from .cleaner import WeChatHTMLCleaner
+from styles import BLUE, NICE, GREEN, GEEK_BLACK, ORANGE_RED, BLUE_GLOW
 
-# 样式目录，相对于当前文件
-STYLES_DIR = os.path.join(os.path.dirname(__file__), '..', 'styles')
-
+# 定义主题映射
+THEMES = {
+    "blue": BLUE,
+    "nice": NICE,
+    "green": GREEN,
+    "geek_black": GEEK_BLACK,
+    "orange_red": ORANGE_RED,
+    "blue_glow": BLUE_GLOW,
+}
 
 class MarkdownRenderer:
     """负责将Markdown渲染为微信公众号兼容的HTML，并应用主题样式。"""
-    def __init__(self, theme_name="default"):
+    def __init__(self, theme_name="blue_glow"):
         self.theme = self._load_theme(theme_name)
-        self.cleaner = WeChatHTMLCleaner()
         self.md = markdown.Markdown(
             extensions=[
                 'markdown.extensions.fenced_code',
@@ -37,9 +42,6 @@ class MarkdownRenderer:
             },
             tab_length=2,
         )
-        # 禁用Tab键/4个空格缩进的代码块功能
-        # 从块处理器列表中注销'indent'处理器
-        self.md.parser.blockprocessors.deregister('indent')
 
     def set_theme(self, theme_name):
         """设置新的主题。"""
@@ -47,41 +49,15 @@ class MarkdownRenderer:
 
     def get_available_themes(self):
         """获取所有可用主题的名称。"""
-        try:
-            files = os.listdir(STYLES_DIR)
-            themes = [f.replace('.css', '') for f in files if f.endswith('.css')]
-            return themes
-        except FileNotFoundError:
-            print(f"Warning: Styles directory not found at {STYLES_DIR}")
-            return []
-
-    def _parse_css(self, css_content):
-        """一个简单的CSS解析器，将CSS文本转换为样式字典。"""
-        style_dict = {}
-        # 移除CSS注释
-        css_content = re.sub(r'/\*.*?\*/', '', css_content, flags=re.DOTALL)
-        # 匹配选择器和其规则
-        pattern = re.compile(r'([^{]+)\s*\{\s*([^}]+)\s*\}')
-        matches = pattern.finditer(css_content)
-        
-        for match in matches:
-            selectors = [s.strip() for s in match.group(1).strip().split(',')]
-            rules = match.group(2).strip()
-            for selector in selectors:
-                if selector:
-                    style_dict[selector] = rules
-        return style_dict
+        return list(THEMES.keys())
 
     def _load_theme(self, theme_name):
-        """从 .css 文件加载并解析指定主题的样式。"""
-        theme_path = os.path.join(STYLES_DIR, f"{theme_name}.css")
-        try:
-            with open(theme_path, 'r', encoding='utf-8') as f:
-                css_content = f.read()
-            return self._parse_css(css_content)
-        except FileNotFoundError:
-            print(f"Warning: Theme file '{theme_name}.css' not found in {STYLES_DIR}. Using empty theme.")
-            return {}
+        """加载指定主题的CSS样式。"""
+        theme = THEMES.get(theme_name.lower())
+        if not theme:
+            print(f"Warning: Theme '{theme_name}' not found. Using default 'blue' theme.") # 如果主题不存在，则使用默认的“blue”主题并打印警告。
+            theme = BLUE
+        return theme
 
     def render(self, markdown_text, mode="light"):
         """
@@ -92,7 +68,11 @@ class MarkdownRenderer:
         # 预处理文本，以修复常见问题并防止解析器崩溃
         # 1. 修复用户可能意外输入的 `<[...](...)` 或 `<![...](...)` 格式
         processed_text = re.sub(r'<!?(\[.*?\]\(.*?\))', r'\1', markdown_text)
-        # 2. 在相邻的不同类型列表之间添加换行符
+        
+        # 2. 在段落和列表之间添加换行符，以确保Markdown解析器能正确识别列表
+        processed_text = re.sub(r'([^\n])\n([ \t]*([\-\*\+]|\d+\.)\s)', r'\1\n\n\2', processed_text)
+
+        # 3. 在相邻的不同类型列表之间添加换行符
         processed_text = re.sub(r'([ \t]*[\-\*\+]\s.*\n)(?=[ \t]*\d+\.\s)', r'\1\n', processed_text)
         processed_text = re.sub(r'([ \t]*\d+\.\s.*\n)(?=[ \t]*[\-\*\+]\s)', r'\1\n', processed_text)
 
@@ -109,14 +89,17 @@ class MarkdownRenderer:
         fragment_soup = BeautifulSoup(html_fragment, 'html.parser')
         doc.body.extend(fragment_soup.contents)
 
-        # 4. 应用主题样式
+        # 4. 清理和修复列表
+        self._process_lists(doc)
+
+        # 5. 应用主题样式
         self._apply_theme_styles(doc, mode)
 
-        # 5. 使用Cleaner清理HTML以兼容微信
-        cleaned_soup = self.cleaner.clean(doc)
+        # 6. 过滤微信不支持的标签和属性
+        self._filter_unsupported_elements(doc)
  
-        # 6. 返回body内的HTML内容
-        return cleaned_soup.body.decode_contents()
+        # 7. 返回body内的HTML内容
+        return doc.body.decode_contents()
  
     def _apply_theme_styles(self, soup, mode):
         """
@@ -150,8 +133,12 @@ class MarkdownRenderer:
  
             for elem in soup.find_all(tag_name):
                 existing_style = elem.get('style', '')
-                # 强制覆盖颜色，确保模式切换生效
-                elem['style'] = f"color: {body_text_color}; {style}; {existing_style}".strip()
+                # 如果主题样式中已经包含 color 属性，则不强制覆盖
+                if 'color:' in style.lower():
+                    elem['style'] = f"{style}; {existing_style}".strip()
+                else:
+                    # 否则，应用主题样式和模式颜色
+                    elem['style'] = f"color: {body_text_color}; {style}; {existing_style}".strip()
 
         # 显式处理 img 标签的样式，确保其 max-width 等属性被应用
         if 'img' in self.theme:
@@ -170,60 +157,34 @@ class MarkdownRenderer:
                     section_tag['style'] = self.theme['section']
                     child.wrap(section_tag)
         
-        # 强制应用表格样式以确保微信兼容性
-        table_style = "width: 100%; border-collapse: collapse; margin: 20px 0;"
-        th_td_style = "border: 1px solid #ddd; padding: 8px; text-align: left;"
-        th_style = "background-color: #f2f2f2;"
-
-        for table_elem in soup.find_all('table'):
-            existing_style = table_elem.get('style', '')
-            table_elem['style'] = f"{table_style} {existing_style}".strip()
-
-        for th_elem in soup.find_all('th'):
-            existing_style = th_elem.get('style', '')
-            th_elem['style'] = f"{th_td_style} {th_style} {existing_style}".strip()
-
-        for td_elem in soup.find_all('td'):
-            existing_style = td_elem.get('style', '')
-            td_elem['style'] = f"{th_td_style} {existing_style}".strip()
-        
         # 应用代码块的macOS样式
         self._apply_mac_style_to_code_blocks(soup)
 
     def _apply_mac_style_to_code_blocks(self, soup):
-        """为所有<pre>代码块应用macOS窗口样式，并显示编程语言（如果可用）。"""
+        """为所有<pre>代码块应用macOS窗口样式，并保证其在原位置。"""
         for pre_tag in soup.find_all('pre'):
-            # 尝试从内部的 <code> 标签获取语言信息
-            code_tag = pre_tag.find('code')
-            language = ''
-            if code_tag and code_tag.get('class'):
-                # class 通常是 ['language-python']
-                lang_class = code_tag.get('class')[0]
-                if lang_class.startswith('language-'):
-                    language = lang_class.replace('language-', '').strip()
-
             # 1. 创建macOS窗口容器
             container = soup.new_tag('div')
             container['style'] = (
-                "background: #2d2d2d; "
-                "border-radius: 8px; "
-                "box-shadow: 0 10px 20px rgba(0,0,0,0.19), 0 6px 6px rgba(0,0,0,0.23); "
-                "margin-bottom: 1.5em; "
+                "background: #1E1E1E; "
+                "border-radius: 5px; "
+                "box-shadow: rgba(0, 0, 0, 0.55) 0px 2px 10px; "
+                "margin-top: 10px; "
+                "margin-bottom: 10px; "
                 "overflow: hidden;"
             )
 
             # 2. 创建标题栏
             title_bar = soup.new_tag('div')
             title_bar['style'] = (
-                "height: 28px; "
-                "background: #e0e0e0; "
+                "height: 30px; "
+                "background-color: #1E1E1E; "
                 "display: flex; "
                 "align-items: center; "
-                "padding: 0 10px;" # 调整内边距
+                "padding-left: 10px;"
             )
 
             # 3. 创建红绿灯按钮
-            button_wrapper = soup.new_tag('div')
             colors = ["#ff5f56", "#ffbd2e", "#27c93f"]
             for color in colors:
                 dot = soup.new_tag('span')
@@ -235,41 +196,125 @@ class MarkdownRenderer:
                     "display: inline-block; "
                     "margin-right: 8px;"
                 )
-                button_wrapper.append(dot)
-            title_bar.append(button_wrapper)
+                title_bar.append(dot)
             
-            # 4. 如果有语言信息，则显示它
-            if language:
-                lang_span = soup.new_tag('span')
-                lang_span.string = language
-                lang_span['style'] = (
-                    "color: #555; "
-                    "font-size: 12px; "
-                    "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif; "
-                    "flex-grow: 1; "
-                    "text-align: center;"
-                )
-                title_bar.append(lang_span)
-                # 为了让语言居中，给红绿灯按钮添加一个等宽的占位符
-                placeholder = soup.new_tag('div')
-                placeholder.append(button_wrapper.decode_contents()) # 复制按钮内容
-                placeholder['style'] = "visibility: hidden;" # 但使其不可见
-                title_bar.append(placeholder)
-
-
-            # 5. 创建代码内容区域
+            # 4. 创建代码内容区域
             content_area = soup.new_tag('div')
-            content_area['style'] = "padding: 15px; overflow-x: auto;"
+            content_area['style'] = (
+                "padding: 16px; "
+                "overflow-x: auto; "
+                "color: #DCDCDC; "
+                "font-family: Operator Mono, Consolas, Monaco, Menlo, monospace; "
+                "font-size: 12px;"
+            )
             
-            # 6. 在文档中，用新容器替换掉旧的<pre>标签
+            # 5. 在文档中，用新容器替换掉旧的<pre>标签
             pre_tag.replace_with(container)
             
-            # 7. 将原始的、完整的<pre>标签移动到新容器的内容区
+            # 6. 将原始的、完整的<pre>标签移动到新容器的内容区
+            # We need to apply some styles to the pre tag itself for scrollability
+            pre_tag['style'] = "overflow-x: auto; background: #1E1E1E; padding: 0; margin: 0; "
+            if pre_tag.code:
+                pre_tag.code['style'] = "font-family: inherit; font-size: inherit;"
+
             content_area.append(pre_tag)
             
-            # 8. 组装窗口
+            # 7. 组装窗口
             container.append(title_bar)
             container.append(content_area)
+
+
+    def _process_lists(self, soup):
+        """
+        [核心渲染逻辑] 通过递归清理和样式化列表来增强与微信的兼容性。
+        
+        该函数是保证列表在微信公众号编辑器中正确显示的核心。
+        它解决了多个由 Markdown 解析和微信编辑器特性共同导致的问题。
+        请勿轻易修改此函数的逻辑，未来新增主题时，也无需为 ul, ol, li 单独定义样式，
+        此函数会统一处理。
+
+        主要解决的问题：
+        1. 清理因 Markdown 书写中空行产生的空 `<li>` 标签。
+        2. 移除 `markdown` 库为包含嵌套列表的 `<li>` 自动包裹的 `<p>` 标签，防止换行。
+        3. 构建一个稳定、健壮的 `<li>` 内部结构 (`<section><span>...</span>...</section>`)，
+           以抵抗微信编辑器的二次解析和样式破坏。
+        """
+        def style_list_items(list_tag, level=0):
+            is_ordered = list_tag.name == 'ol'
+            list_tag['style'] = "list-style-type: none; padding: 0; margin: 0;"
+            
+            item_counter = 1
+            for li in list(list_tag.find_all('li', recursive=False)):
+                # 递归处理嵌套列表
+                for nested_list in li.find_all(['ul', 'ol'], recursive=False):
+                    style_list_items(nested_list, level + 1)
+                
+                # 简化：移除<li>内多余的<p>包装
+                if li.p and len(li.find_all(recursive=False)) == 1:
+                    li.p.unwrap()
+                
+                # 清理：删除空的或只包含空白的<li>
+                # 我们通过替换掉 &nbsp; (non-breaking space) 来确保判断的准确性
+                text = li.get_text(strip=True).replace(u'\xa0', '').strip()
+                if not text and not li.find('img'):
+                    li.decompose()
+                    continue
+
+                # 解决复杂列表项中 markdown 库自动添加 <p> 标签导致换行的问题
+                # 我们找到第一个 <p> 元素并将其解包，这样文本就不会被块级元素包围
+                first_child = li.find(recursive=False)
+                if first_child and first_child.name == 'p':
+                    first_child.unwrap()
+
+                # 应用缩进
+                indent_size = 2  # em
+                li['style'] = f"display: block; margin-bottom: 0.5em; padding-left: {level * indent_size}em;"
+
+                # 将li的现有内容包装在一个section中，以增强微信兼容性
+                content_section = soup.new_tag('section')
+                # 遍历li的子元素并添加到新的section中
+                for child in list(li.children):
+                    content_section.append(child)
+
+                # 手动添加项目符号或编号
+                prefix_text = f"{item_counter}. " if is_ordered else "• "
+                prefix_span = soup.new_tag('span')
+                # 使用 non-breaking space 避免被微信编辑器压缩
+                prefix_span.string = prefix_text.replace(" ", u"\u00A0")
+                prefix_span['style'] = "margin-right: 0.6em;"
+                
+                # 将项目符号和内容都放在 section 内，以避免不必要的换行
+                content_section.insert(0, prefix_span)
+
+                # 清空li，然后用包含所有内容的新section替换
+                li.clear()
+                li.append(content_section)
+                
+                if is_ordered:
+                    item_counter += 1
+
+        # 从顶层列表开始处理
+        for list_tag in soup.find_all(['ul', 'ol']):
+            if not list_tag.find_parent(['ul', 'ol']):
+                style_list_items(list_tag, 0)
+    
+    # 删除重复的 _apply_theme_styles 方法
+    def _filter_unsupported_elements(self, soup):
+        """
+        过滤微信公众号不支持的HTML标签和属性。
+        """
+        # 移除 script 和 style 标签
+        for s in soup(['script', 'style']):
+            s.decompose()
+
+        # 移除微信不支持的属性
+        for tag in soup.find_all(True):
+            if tag.name not in ['html', 'body', 'head']:
+                allowed_attrs = ['style', 'src', 'href', 'alt', 'title', 'width', 'height', 'data-src', 'data-type', 'data-w', 'data-h']
+                attrs = dict(tag.attrs)
+                for attr, _ in attrs.items():
+                    if attr not in allowed_attrs:
+                        del tag[attr]
 
 if __name__ == '__main__':
     # 示例用法

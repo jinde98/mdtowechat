@@ -1,45 +1,47 @@
 /* styles/geek_black.css */
-/* 极客黑主题 - 统一黑底白字代码块 */
+/* 极客黑主题样式 - 代码块部分 */
 
-body {
-    background-color: #1e1e1e;
-    color: #d4d4d4;
+/* 
+  代码块容器样式，模仿macOS窗口 
+  这些样式主要通过 core/renderer.py 的 _apply_mac_style_to_code_blocks 函数动态应用。
+  此处仅为参考。
+*/
+
+.code-block-container {
+    background: #1E1E1E;
+    border-radius: 5px;
+    box-shadow: rgba(0, 0, 0, 0.55) 0px 2px 10px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+    overflow: hidden;
 }
 
-/* 统一代码块样式: 简洁黑底白字 */
-pre {
-    background-color: #1a1a1a; /* 纯黑背景 */
-    border: 1px solid #555; /* 深灰色边框 */
-    border-radius: 4px;
-    padding: 1em;
-    margin: 20px 0;
+.code-block-title-bar {
+    height: 30px;
+    background-color: #1E1E1E;
+    display: flex;
+    align-items: center;
+    padding-left: 10px;
+}
+
+.code-block-dot {
+    height: 12px;
+    width: 12px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 8px;
+}
+
+.code-block-dot-red { background-color: #ff5f56; }
+.code-block-dot-yellow { background-color: #ffbd2e; }
+.code-block-dot-green { background-color: #27c93f; }
+
+.code-block-content {
+    padding: 16px;
     overflow-x: auto;
-    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
-    font-size: 14px;
-    line-height: 1.5;
+    color: #DCDCDC;
+    font-family: "Operator Mono", "Consolas", "Monaco", "Menlo", monospace;
+    font-size: 12px;
 }
 
-pre code {
-    background: none;
-    padding: 0;
-    color: #f0f0f0; /* 白色文字 */
-    font-family: inherit;
-    font-size: inherit;
-    text-shadow: none; /* 确保没有其他主题的文字阴影 */
-}
-
-/* 行内代码块 */
-code {
-    background-color: #333; /* 深灰色背景 */
-    color: #f0f0f0; /* 白色文字 */
-    padding: 3px 6px;
-    border-radius: 4px;
-}
-
-img {
-    max-width: 100%;
-    height: auto;
-    display: block;
-    margin: 20px auto;
-    border-radius: 8px;
-}
+/* Pygments highlighing styles are applied inline */
