@@ -1,5 +1,4 @@
 import sys
-import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
                              QTextEdit, QAction, QFileDialog, QSplitter, QActionGroup, 
                              QMenu, QListWidget, QPushButton, QListWidgetItem, QFrame, QLabel) # Added QLabel
@@ -11,6 +10,11 @@ from PyQt5.QtCore import Qt, QUrl, QSize, pyqtSlot, QTimer, QObject, QThread, py
 from PyQt5.QtWebChannel import QWebChannel
 from PyQt5.QtGui import QColor, QFont, QIcon
 from bs4 import BeautifulSoup
+
+# 将项目根目录添加到sys.path，以便正确解析模块
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from core.renderer import MarkdownRenderer
 from gui.editor import PastingImageEditor
@@ -27,6 +31,7 @@ from gui.crawl_dialog import CrawlDialog
 from PyQt5.QtWidgets import QDialog, QMessageBox
 from core.crawler import Crawler
 from core.llm import LLMProcessor
+from core.workers import PublishWorker
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -591,18 +596,14 @@ class MainWindow(QMainWindow):
         # 1. 创建线程和Worker
         self.publish_thread = QThread()
         self.publish_worker = PublishWorker(
-            articles_data=all_articles_data,
-            wechat_api=self.wechat_api,
-            renderer=self.renderer,
-            template_manager=self.template_manager,
-            storage_manager=self.storage_manager,
-            use_template=self.use_template,
-            current_mode=self.current_mode
+            all_articles_data,
+            self.use_template,
+            self.current_mode
         )
         self.publish_worker.moveToThread(self.publish_thread)
 
         # 2. 连接信号和槽
-        self.publish_worker.progress_updated.connect(self._on_publish_progress)
+        self.publish_worker.progress.connect(self._on_publish_progress)
         self.publish_worker.finished.connect(self._on_publish_finished)
         self.publish_thread.started.connect(self.publish_worker.run)
         
@@ -941,100 +942,6 @@ class MainWindow(QMainWindow):
                 }
             """)
 
-# --- 异步发布 Worker ---
-class PublishWorker(QObject):
-    progress_updated = pyqtSignal(str)
-    finished = pyqtSignal(bool, str)
-
-    def __init__(self, articles_data, wechat_api, renderer, template_manager, storage_manager, use_template, current_mode):
-        super().__init__()
-        self.articles_data = articles_data
-        self.wechat_api = wechat_api
-        self.renderer = renderer
-        self.template_manager = template_manager
-        self.storage_manager = storage_manager
-        self.use_template = use_template
-        self.current_mode = current_mode
-        self.log = logging.getLogger("PublishWorker")
-
-    def run(self):
-        """执行多图文的上传和发布草稿逻辑"""
-        try:
-            final_articles_for_wechat_api = []
-            uploaded_images_cache = {}
-
-            for i, article_data in enumerate(self.articles_data):
-                title = article_data.get('title', '无标题')
-                progress_message = f"正在处理文章 {i+1}/{len(self.articles_data)}: \"{title}\""
-                self.log.info(progress_message)
-                self.progress_updated.emit(progress_message)
-
-                markdown_content = article_data['markdown_content']
-                if self.use_template:
-                    header, footer = self.template_manager.get_templates()
-                    full_markdown_content = f"{header}\n\n{markdown_content}\n\n{footer}"
-                else:
-                    full_markdown_content = markdown_content
-                
-                article_theme = article_data.get('theme', 'default')
-                self.renderer.set_theme(article_theme)
-                html_content = self.renderer.render(full_markdown_content, mode=self.current_mode)
-
-                digest = article_data.get('digest', '')
-                if not digest:
-                    soup = BeautifulSoup(html_content, 'html.parser')
-                    first_p = soup.find('p')
-                    if first_p:
-                        digest = first_p.get_text()
-                digest = digest[:100]
-
-                self.progress_updated.emit(f"正在上传 \"{title}\" 的封面图...")
-                cover_image_path = article_data.get('cover_image', '')
-                thumb_media_id, cover_url = self.wechat_api.get_thumb_media_id_and_url(cover_image_path)
-
-                if not thumb_media_id:
-                    raise Exception(f"文章 \"{title}\" 获取封面图失败。")
-
-                if cover_image_path and cover_url:
-                    uploaded_images_cache[cover_image_path] = cover_url
-
-                self.progress_updated.emit(f"正在上传 \"{title}\" 的正文图片...")
-                final_html_content = self.wechat_api.process_content_images(html_content, uploaded_images_cache)
-
-                api_article_data = {
-                    'title': title[:64],
-                    'author': article_data.get('author', self.wechat_api.default_author),
-                    'digest': digest,
-                    'content': final_html_content,
-                    'thumb_media_id': thumb_media_id,
-                    'content_source_url': article_data.get('content_source_url', ''),
-                    'need_open_comment': 1,
-                    'show_cover_pic': 1
-                }
-                final_articles_for_wechat_api.append(api_article_data)
-
-            self.progress_updated.emit("所有文章处理完毕，正在创建草稿...")
-            self.log.info("All articles processed. Attempting to create multi-article draft.")
-            media_id, error_message = self.wechat_api.create_draft(articles=final_articles_for_wechat_api)
-
-            if media_id:
-                success_msg = f"包含 {len(final_articles_for_wechat_api)} 篇文章的草稿已成功发布！\nMedia ID: {media_id}"
-                self.log.info(success_msg)
-                
-                self.progress_updated.emit("发布成功！正在本地存档HTML文件...")
-                for i, article_data in enumerate(self.articles_data):
-                    title = final_articles_for_wechat_api[i]['title']
-                    final_html_content = final_articles_for_wechat_api[i]['content']
-                    self.storage_manager.save_html_archive(title, final_html_content)
-                
-                self.finished.emit(True, success_msg + "\n\n所有文章的HTML内容均已在本地存档。")
-            else:
-                raise Exception(f"多图文草稿发布失败: {error_message}")
-
-        except Exception as e:
-            error_msg = f"发布过程中出现错误: {e}"
-            self.log.error(error_msg, exc_info=True)
-            self.finished.emit(False, error_msg)
 
 class CrawlWorker(QObject):
     progress_updated = pyqtSignal(str)
