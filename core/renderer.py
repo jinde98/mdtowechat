@@ -29,6 +29,7 @@ class MarkdownRenderer:
                 'markdown.extensions.codehilite',
                 'markdown.extensions.tables',
                 'markdown.extensions.toc',
+                'markdown.extensions.extra',
             ],
             extension_configs={
                 'markdown.extensions.codehilite': {
@@ -38,7 +39,10 @@ class MarkdownRenderer:
                 },
                 'markdown.extensions.toc': {
                     'toc_depth': '2-3',  # 仅包含二级和三级标题
-                }
+                },
+                'markdown.extensions.extra': {
+                    'code-friendly': False,
+                },
             },
             tab_length=2,
         )
@@ -75,6 +79,23 @@ class MarkdownRenderer:
         # 3. 在相邻的不同类型列表之间添加换行符
         processed_text = re.sub(r'([ \t]*[\-\*\+]\s.*\n)(?=[ \t]*\d+\.\s)', r'\1\n', processed_text)
         processed_text = re.sub(r'([ \t]*\d+\.\s.*\n)(?=[ \t]*[\-\*\+]\s)', r'\1\n', processed_text)
+
+        # 4. 手动移除普通段落前的四空格缩进，以防止被错误地解析为代码块
+        lines = processed_text.split('\n')
+        in_code_block = False
+        new_lines = []
+        for line in lines:
+            if line.strip().startswith('```'):
+                in_code_block = not in_code_block
+                new_lines.append(line)
+                continue
+            
+            # 如果不在代码块中，且行以四个空格开头，则移除这四个空格
+            if not in_code_block and line.startswith('    ') and not line.strip() == "":
+                new_lines.append(line[4:])
+            else:
+                new_lines.append(line)
+        processed_text = '\n'.join(new_lines)
 
         # 1. 将Markdown转换为HTML片段
         html_fragment = self.md.convert(processed_text)
@@ -297,8 +318,7 @@ class MarkdownRenderer:
         for list_tag in soup.find_all(['ul', 'ol']):
             if not list_tag.find_parent(['ul', 'ol']):
                 style_list_items(list_tag, 0)
-    
-    # 删除重复的 _apply_theme_styles 方法
+
     def _filter_unsupported_elements(self, soup):
         """
         过滤微信公众号不支持的HTML标签和属性。

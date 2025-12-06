@@ -1,9 +1,10 @@
 import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
                              QTextEdit, QAction, QFileDialog, QSplitter, QActionGroup, 
-                             QMenu, QListWidget, QPushButton, QListWidgetItem, QFrame, QLabel) # Added QLabel
+                             QMenu, QListWidget, QPushButton, QListWidgetItem, QFrame, QLabel, QAbstractItemView, QLineEdit)
 from functools import partial
 import os
+import yaml
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 import logging
 from PyQt5.QtCore import Qt, QUrl, QSize, pyqtSlot, QTimer, QObject, QThread, pyqtSignal
@@ -27,11 +28,11 @@ from gui.template_editor import TemplateEditorDialog
 from core.template_manager import TemplateManager
 from gui.status_dialog import StatusDialog
 from gui.settings_dialog import SettingsDialog
-from gui.crawl_dialog import CrawlDialog
+from gui.rewrite_dialog import RewriteDialog
 from PyQt5.QtWidgets import QDialog, QMessageBox
 from core.crawler import Crawler
 from core.llm import LLMProcessor
-from core.workers import PublishWorker
+from core.workers import PublishWorker, RewriteWorker
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -58,6 +59,15 @@ class MainWindow(QMainWindow):
         self.current_article_index = -1
         self._is_switching_articles = False # 添加一个标志来防止重入
         self._is_syncing_scroll = False # 添加标志以防止滚动同步循环
+        
+        self.crawl_queue = [] # (url, system_prompt, article_index)
+        self.crawl_thread = None
+        self.crawl_worker = None
+        self.crawling_article_index = -1
+        
+        self.rewrite_thread = None
+        self.rewrite_worker = None
+        self.is_rewriting = False
 
         self._init_ui()
         self._create_menu_bar()
@@ -110,17 +120,28 @@ class MainWindow(QMainWindow):
         article_action_layout.addWidget(remove_article_btn)
         left_layout.addLayout(article_action_layout)
 
-        # Crawl Button - new centered layout
-        crawl_layout = QHBoxLayout()
+        # Crawl Section
+        crawl_section_layout = QVBoxLayout()
+
+        self.crawl_url_input = QLineEdit()
+        self.crawl_url_input.setPlaceholderText("在此输入网页URL进行抓取")
+        crawl_section_layout.addWidget(self.crawl_url_input)
+
         crawl_article_btn = QPushButton(" 从网页地址抓取内容")
         crawl_article_btn.setIcon(QIcon.fromTheme("web-browser"))
-        crawl_article_btn.setFixedHeight(35) # Match height
+        crawl_article_btn.setFixedHeight(35)
         crawl_article_btn.setToolTip("从网页抓取内容并由AI生成文章")
         crawl_article_btn.clicked.connect(self._crawl_article)
-        crawl_layout.addStretch()
-        crawl_layout.addWidget(crawl_article_btn)
-        crawl_layout.addStretch()
-        left_layout.addLayout(crawl_layout)
+        crawl_section_layout.addWidget(crawl_article_btn)
+        
+        rewrite_article_btn = QPushButton(" AI改写当前文章")
+        rewrite_article_btn.setIcon(QIcon.fromTheme("document-edit"))
+        rewrite_article_btn.setFixedHeight(35)
+        rewrite_article_btn.setToolTip("使用AI对当前文章进行改写")
+        rewrite_article_btn.clicked.connect(self._rewrite_article)
+        crawl_section_layout.addWidget(rewrite_article_btn)
+
+        left_layout.addLayout(crawl_section_layout)
 
         # Separator
         separator = QFrame()
@@ -130,6 +151,7 @@ class MainWindow(QMainWindow):
 
         # Article List
         self.article_list_widget = QListWidget()
+        self.article_list_widget.setSelectionMode(QAbstractItemView.ExtendedSelection) # Allow multi-selection
         self.article_list_widget.currentRowChanged.connect(self._select_article)
         self.article_list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.article_list_widget.customContextMenuRequested.connect(self._show_article_list_context_menu)
@@ -184,8 +206,8 @@ class MainWindow(QMainWindow):
         # 文件菜单
         file_menu = menu_bar.addMenu("文件")
 
-        new_action = QAction("新建", self)
-        new_action.triggered.connect(self._new_document)
+        new_action = QAction("清空所有", self)
+        new_action.triggered.connect(self._clear_all_articles)
         file_menu.addAction(new_action)
 
         open_action = QAction("打开...", self)
@@ -217,6 +239,12 @@ class MainWindow(QMainWindow):
         redo_action.setShortcut("Ctrl+Y")
         redo_action.triggered.connect(self.markdown_editor.redo)
         edit_menu.addAction(redo_action)
+
+        edit_menu.addSeparator()
+
+        rewrite_action = QAction("AI 改写文章...", self)
+        rewrite_action.triggered.connect(self._rewrite_article)
+        edit_menu.addAction(rewrite_action)
 
         edit_menu.addSeparator()
 
@@ -270,11 +298,13 @@ class MainWindow(QMainWindow):
         help_menu.addAction(about_action)
 
     def _init_articles(self):
-        """初始化文章列表，默认创建一篇新文章。"""
-        self.articles = [{'title': '未命名文章 1', 'content': '# 未命名文章 1\n\n', 'theme': 'blue_glow'}]
-        self.current_article_index = 0
+        """初始化文章列表，默认为空。"""
+        self.articles = []
+        self.current_article_index = -1
         self._refresh_article_list()
-        self._load_article_content(self.current_article_index)
+        self.markdown_editor.clear()
+        self.html_preview.set_html_content("")
+        self.setWindowTitle("微信公众号Markdown渲染发布系统")
 
     def _refresh_article_list(self):
         """刷新左侧的文章列表UI。"""
@@ -303,50 +333,160 @@ class MainWindow(QMainWindow):
         self._load_article_content(self.current_article_index)
 
     def _crawl_article(self):
-        """从网页抓取内容并生成新文章（异步）。"""
-        dialog = CrawlDialog(self)
-        if dialog.exec_() != QDialog.Accepted:
+        """将抓取任务添加到队列，并按需启动处理。"""
+        url = self.crawl_url_input.text().strip()
+        if not url:
+            QMessageBox.warning(self, "输入错误", "请输入有效的网页URL。")
             return
 
-        url, system_prompt = dialog.get_data()
-        self.log.info(f"Starting crawl for url: {url}")
+        # 加载 system_prompt from config
+        config_path = 'config.yaml'
+        system_prompt = ""
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = yaml.safe_load(f)
+                    system_prompt = config.get('llm', {}).get('system_prompt', '')
+            except Exception as e:
+                self.log.error(f"Failed to load or parse config.yaml: {e}")
+        
+        if not system_prompt:
+            QMessageBox.warning(self, "配置错误", "System Prompt为空，请先在“设置”中配置。")
+            return
 
-        self.status_dialog = StatusDialog(title="文章生成中", parent=self)
+        # 创建一个占位文章
+        self._update_current_article_content()
+        placeholder_title = f"排队中 - {url.split('/')[-1]}"
+        placeholder_content = f"# 任务已加入队列\n\n等待抓取: {url}"
+        new_article = {'title': placeholder_title, 'content': placeholder_content, 'theme': 'default'}
+        
+        self.articles.append(new_article)
+        new_article_index = len(self.articles) - 1
+        
+        # 将任务添加到队列
+        self.crawl_queue.append((url, system_prompt, new_article_index))
+        self.log.info(f"Queued crawl for url: {url}")
+
+        # 刷新列表并选中新文章
+        self.current_article_index = new_article_index
+        self._refresh_article_list()
+        self._load_article_content(self.current_article_index)
+        self.crawl_url_input.clear() # 清空输入框
+
+        # 启动队列处理
+        self._process_crawl_queue()
+
+    def _rewrite_article(self):
+        """使用AI对当前文章进行改写。"""
+        if not (0 <= self.current_article_index < len(self.articles)):
+            QMessageBox.warning(self, "操作失败", "没有可改写的文章。")
+            return
+            
+        if self.is_rewriting:
+            QMessageBox.warning(self, "操作繁忙", "已有改写任务在进行中，请稍后再试。")
+            return
+
+        current_content = self.markdown_editor.toPlainText()
+        if not current_content.strip():
+            QMessageBox.warning(self, "操作失败", "文章内容为空，无法改写。")
+            return
+
+        dialog = RewriteDialog(current_content, self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+            
+        custom_prompt = dialog.get_data()
+        system_prompt = dialog.system_prompt_input.toPlainText()
+
+        self.is_rewriting = True
+        self.status_dialog = StatusDialog(title="AI改写中", parent=self)
         self.status_dialog.show()
+        self.status_dialog.update_status("正在调用AI进行改写，请稍候...", is_finished=False)
         QApplication.processEvents()
 
-        # 1. 创建线程和Worker
+        self.rewrite_thread = QThread()
+        self.rewrite_worker = RewriteWorker(current_content, custom_prompt, system_prompt)
+        self.rewrite_worker.moveToThread(self.rewrite_thread)
+
+        self.rewrite_worker.finished.connect(self._on_rewrite_finished)
+        self.rewrite_thread.started.connect(self.rewrite_worker.run)
+
+        self.rewrite_thread.start()
+        self.log.info("Rewrite thread started.")
+
+    def _process_crawl_queue(self):
+        """处理抓取队列中的下一个任务。"""
+        if self.crawl_worker is not None or not self.crawl_queue:
+            return # 如果有任务正在运行或队列为空，则返回
+
+        url, system_prompt, article_index = self.crawl_queue.pop(0)
+        self.crawling_article_index = article_index
+        
+        self.log.info(f"Starting crawl for url: {url}")
+
+        # 更新占位文章的状态
+        article = self.articles[self.crawling_article_index]
+        article['title'] = f"抓取中 - {url.split('/')[-1]}"
+        article['content'] = f"# 正在抓取内容...\n\n从URL: {url}"
+        self._refresh_article_list()
+        if self.current_article_index == self.crawling_article_index:
+            self._load_article_content(self.crawling_article_index)
+        QApplication.processEvents()
+
+        # 创建并启动Worker
         self.crawl_thread = QThread()
         self.crawl_worker = CrawlWorker(url, system_prompt)
         self.crawl_worker.moveToThread(self.crawl_thread)
-
-        # 2. 连接信号和槽
         self.crawl_worker.progress_updated.connect(self._on_crawl_progress)
         self.crawl_worker.finished.connect(self._on_crawl_finished)
         self.crawl_thread.started.connect(self.crawl_worker.run)
-
-        # 3. 启动线程
         self.crawl_thread.start()
-        self.log.info("Crawl thread started.")
+        self.log.info("Crawl thread started for a new task.")
 
 
     def _remove_article(self):
-        """删除当前选中的文章。"""
-        if len(self.articles) <= 1:
-            QMessageBox.warning(self, "操作失败", "至少需要保留一篇文章。")
+        """删除当前选中的一篇或多篇文章。"""
+        selected_items = self.article_list_widget.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "操作失败", "请先选择要删除的文章。")
             return
-            
-        row = self.article_list_widget.currentRow()
-        if row >= 0:
-            reply = QMessageBox.question(self, '确认删除', f"确定要删除文章 \"{self.articles[row]['title']}\" ?\n此操作不可撤销。",
+
+        # 获取选中的行号
+        rows_to_delete = sorted([self.article_list_widget.row(item) for item in selected_items], reverse=True)
+        
+        # 构建确认信息
+        if len(rows_to_delete) == 1:
+            confirm_message = f"确定要删除文章 \"{self.articles[rows_to_delete[0]]['title']}\" ?\n此操作不可撤销。"
+        else:
+            confirm_message = f"确定要删除选中的 {len(rows_to_delete)} 篇文章吗？\n此操作不可撤销。"
+
+        reply = QMessageBox.question(self, '确认删除', confirm_message,
                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                del self.articles[row]
-                if self.current_article_index >= row:
-                    self.current_article_index = max(0, self.current_article_index - 1)
-                
-                self._refresh_article_list()
-                self._load_article_content(self.current_article_index)
+        if reply != QMessageBox.Yes:
+            return
+
+        # 从后往前删除，避免索引错乱
+        for row in rows_to_delete:
+            del self.articles[row]
+
+        # 重新计算当前索引
+        if not self.articles:
+            self.current_article_index = -1
+        else:
+            # 选择一个合理的新索引：删除区域之前的最后一个项
+            first_deleted_row = rows_to_delete[-1] 
+            new_index = min(first_deleted_row, len(self.articles) - 1)
+            self.current_article_index = new_index
+
+        self._refresh_article_list()
+
+        # 如果列表为空，确保UI被清空
+        if self.current_article_index == -1:
+            self.markdown_editor.clear()
+            self._update_preview()
+        else:
+            # 否则加载新选中的文章
+            self._load_article_content(self.current_article_index)
 
     def _select_article(self, index):
         """当用户在列表中选择不同文章时触发。"""
@@ -384,6 +524,7 @@ class MainWindow(QMainWindow):
     def _update_preview(self):
         """根据当前选中文章的内容更新HTML预览。"""
         if not (0 <= self.current_article_index < len(self.articles)):
+            self.html_preview.set_html_content("") # Clear preview if no article is selected
             return
 
         current_article = self.articles[self.current_article_index]
@@ -400,16 +541,20 @@ class MainWindow(QMainWindow):
         html_content = self.renderer.render(full_markdown_content, mode=self.current_mode)
         self.html_preview.set_html_content(html_content)
 
-    def _new_document(self):
-        """清空所有文章，重置为一个新的文档。"""
-        reply = QMessageBox.question(self, '确认操作', "此操作将清空所有已编辑的文章，确定要新建吗？",
+    def _clear_all_articles(self):
+        """清空所有文章。"""
+        if not self.articles:
+            return
+        reply = QMessageBox.question(self, '确认操作', "此操作将清空所有已编辑的文章，确定要清空吗？",
                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             self.articles = []
             self.current_article_index = -1
-            self._init_articles()
-            self.setWindowTitle("微信公众号Markdown渲染发布系统 - 未命名")
-            self.log.info("New document created, all articles cleared.")
+            self._refresh_article_list()
+            self.markdown_editor.clear()
+            self._update_preview()
+            self.setWindowTitle("微信公众号Markdown渲染发布系统")
+            self.log.info("All articles cleared by user.")
 
     def _open_document(self):
         """打开一个或多个Markdown文件，并将它们作为新文章添加到列表中。"""
@@ -628,40 +773,89 @@ class MainWindow(QMainWindow):
         self.log.info("Publish thread and worker cleaned up.")
 
     def _on_crawl_progress(self, message):
+        """在编辑器中更新抓取进度。"""
+        if self.crawling_article_index != -1:
+            article = self.articles[self.crawling_article_index]
+            article['title'] = f"抓取中... {message[:10]}..."
+            
+            url = self.crawl_worker.url if self.crawl_worker else ""
+            content = f"# 抓取中...\n\n从 {url}\n\n---\n\n{message}"
+            article['content'] = content
+
+            self._refresh_article_list()
+            if self.current_article_index == self.crawling_article_index:
+                self.markdown_editor.blockSignals(True)
+                self.markdown_editor.setPlainText(content)
+                self.markdown_editor.blockSignals(False)
+            
+            QApplication.processEvents()
+
+    def _on_rewrite_finished(self, success, result):
+        """处理AI改写完成后的结果。"""
+        QApplication.beep()
+        if success:
+            self.markdown_editor.setPlainText(result)
+            self._update_current_article_content()
+            final_message = "文章改写成功！"
+            self.log.info("Article rewrite successful.")
+        else:
+            final_message = f"改写失败: {result}"
+            self.log.error(f"Article rewrite failed: {result}")
+        
         if self.status_dialog:
-            self.status_dialog.update_status(message, is_finished=False)
+            self.status_dialog.update_status(final_message, is_finished=True)
+
+        # Cleanup
+        self.rewrite_thread.quit()
+        self.rewrite_thread.wait()
+        self.rewrite_worker.deleteLater()
+        self.rewrite_thread.deleteLater()
+        self.is_rewriting = False
+        self.log.info("Rewrite thread and worker cleaned up.")
 
     def _on_crawl_finished(self, success, result):
         QApplication.beep()
-        if self.status_dialog:
-            if success:
-                # result 是一个包含新文章数据的字典
-                title = self.parser.parse_markdown(result['content']).get('title', os.path.basename(result['url']))
-                new_article = {
-                    'title': title,
-                    'content': result['content'],
-                    'theme': 'default'
-                }
-                self.articles.append(new_article)
-                self.current_article_index = len(self.articles) - 1
-                self._refresh_article_list()
-                self._load_article_content(self.current_article_index)
-                
-                final_message = "文章生成成功！"
-                self.log.info(f"Successfully crawled and processed article from {result['url']}")
-            else:
-                # result 是错误信息字符串
-                final_message = f"操作失败: {result}"
-                self.log.error(f"Failed to crawl and process article: {result}")
-            
-            self.status_dialog.update_status(final_message, is_finished=True)
+        
+        if self.crawling_article_index == -1:
+            self.log.error("Crawl finished but no crawling_article_index was set.")
+            return
 
-        # 清理线程和worker
-        self.crawl_thread.quit()
-        self.crawl_thread.wait()
+        article = self.articles[self.crawling_article_index]
+
+        if success:
+            final_content = result['content']
+            title = self.parser.parse_markdown(final_content).get('title', os.path.basename(result['url']))
+            article['title'] = title
+            article['content'] = final_content
+            self.log.info(f"Successfully crawled and processed article from {result['url']}")
+        else:
+            error_message = result
+            url = self.crawl_worker.url if self.crawl_worker else "未知URL"
+            title = "抓取失败"
+            final_content = f"# {title}\n\n从 {url} 抓取时发生错误。\n\n**错误详情:**\n```\n{error_message}\n```\n"
+            article['title'] = title
+            article['content'] = final_content
+            self.log.error(f"Failed to crawl and process article from {url}: {error_message}")
+
+        # 更新UI
+        self._refresh_article_list()
+        if self.current_article_index == self.crawling_article_index:
+            self._load_article_content(self.crawling_article_index)
+
+        # 清理当前worker并处理队列中的下一个
+        if self.crawl_thread:
+            self.crawl_thread.quit()
+            self.crawl_thread.wait()
+        
         self.crawl_worker.deleteLater()
         self.crawl_thread.deleteLater()
-        self.log.info("Crawl thread and worker cleaned up.")
+        
+        self.crawl_worker = None
+        self.crawl_thread = None
+        self.crawling_article_index = -1
+        self.log.info("Crawl worker cleaned up. Processing next in queue...")
+
+        self._process_crawl_queue()
 
     def _show_article_list_context_menu(self, position):
         """显示文章列表的右键上下文菜单。"""

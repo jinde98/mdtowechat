@@ -48,6 +48,10 @@ if __name__ == "__main__": # 程序入口。
         create_default_config()
 
         app = QApplication(sys.argv)
+
+        # 设置应用程序图标
+        from PyQt5.QtGui import QIcon
+        app.setWindowIcon(QIcon('assets/icon.png'))
         
         # 设置全局字体大小，使其更舒适
         from PyQt5.QtGui import QFont

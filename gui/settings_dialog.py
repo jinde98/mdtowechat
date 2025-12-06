@@ -49,10 +49,15 @@ class SettingsDialog(QDialog):
         self.llm_model_edit.setPlaceholderText("例如：gpt-4-turbo")
         self.llm_system_prompt_edit = QTextEdit()
         self.llm_system_prompt_edit.setMinimumHeight(120)
+        
+        self.llm_rewrite_prompt_edit = QTextEdit()
+        self.llm_rewrite_prompt_edit.setMinimumHeight(120)
+
         llm_layout.addRow("API 密钥:", self.llm_api_key_edit)
         llm_layout.addRow("API 地址:", self.llm_base_url_edit)
         llm_layout.addRow("模型名称:", self.llm_model_edit)
-        llm_layout.addRow("系统提示词:", self.llm_system_prompt_edit)
+        llm_layout.addRow("抓取文章提示词:", self.llm_system_prompt_edit)
+        llm_layout.addRow("AI改写提示词:", self.llm_rewrite_prompt_edit)
         llm_group.setLayout(llm_layout)
         layout.addWidget(llm_group)
 
@@ -75,6 +80,7 @@ class SettingsDialog(QDialog):
         self.llm_base_url_edit.setText(self.config_manager.get("llm.base_url", ""))
         self.llm_model_edit.setText(self.config_manager.get("llm.model", ""))
         self.llm_system_prompt_edit.setPlainText(self.config_manager.get("llm.system_prompt", ""))
+        self.llm_rewrite_prompt_edit.setPlainText(self.config_manager.get("llm.rewrite_prompt", ""))
 
     def accept(self):
         # 使用新值更新配置字典。
@@ -94,6 +100,7 @@ class SettingsDialog(QDialog):
         llm_config['base_url'] = self.llm_base_url_edit.text().strip()
         llm_config['model'] = self.llm_model_edit.text().strip()
         llm_config['system_prompt'] = self.llm_system_prompt_edit.toPlainText().strip()
+        llm_config['rewrite_prompt'] = self.llm_rewrite_prompt_edit.toPlainText().strip()
         
         # **自动清理废弃的顶层'DEFAULT_AUTHOR'字段**
         if 'DEFAULT_AUTHOR' in self.config_data:

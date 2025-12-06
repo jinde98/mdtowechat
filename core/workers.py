@@ -140,3 +140,44 @@ class PublishWorker(QObject):
 
         except Exception as e:
             self.finished.emit(False, f"发布失败: {e}")
+
+
+class RewriteWorker(QObject):
+    """
+    一个在后台线程中执行AI改写任务的Worker。
+    """
+    finished = pyqtSignal(bool, str)  # success, content or error message
+    progress = pyqtSignal(str)
+
+    def __init__(self, original_content, custom_prompt, system_prompt):
+        super().__init__()
+        self.original_content = original_content
+        self.custom_prompt = custom_prompt
+        self.system_prompt = system_prompt
+
+    def run(self):
+        """
+        执行AI改写的核心逻辑。
+        """
+        try:
+            self.progress.emit("正在准备改写, 请稍候...")
+            
+            # 结合system prompt和用户自定义prompt
+            full_prompt = f"{self.system_prompt}\n\n用户的具体要求是：'{self.custom_prompt}'"
+
+            llm_processor = LLMProcessor()
+            processed_content, error = llm_processor.process_content(
+                self.original_content, 
+                full_prompt
+            )
+            
+            if error:
+                raise Exception(f"AI处理失败: {error}")
+
+            self.progress.emit("改写成功！")
+            self.finished.emit(True, processed_content)
+
+        except Exception as e:
+            error_msg = f"改写失败: {e}"
+            self.progress.emit(error_msg)
+            self.finished.emit(False, error_msg)
