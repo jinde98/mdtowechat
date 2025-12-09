@@ -3,23 +3,45 @@ from .md_extensions import MetadataExtension
 
 class ContentParser:
     """
-    负责使用Markdown AST来解析内容，提取文章元数据。
+    Markdown内容解析器。
+
+    本类的核心职责是解析Markdown文本，并利用自定义的 `MetadataExtension` 扩展
+    来提取结构化的元数据（如标题、作者、封面图等）。
+
+    它作为一个更高层次的封装，简化了元数据提取的调用过程。
     """
     def __init__(self):
-        """初始化一个带有元数据提取扩展的Markdown实例。"""
+        """
+        初始化解析器。
+        在内部，它会创建一个加载了 `MetadataExtension` 的 `markdown.Markdown` 实例。
+        这个实例在 `ContentParser` 的生命周期内可以被复用。
+        """
         self.md = markdown.Markdown(extensions=[MetadataExtension()])
 
     def parse_markdown(self, markdown_content):
         """
-        通过处理Markdown文本来解析元数据。
+        解析给定的Markdown文本，并返回提取出的元数据字典。
+
+        工作流程：
+        1. 调用 `self.md.convert()`。这一步的**主要目的不是为了获取HTML**，
+           而是为了**触发**注册在 `markdown` 处理管道中的 `MetadataExtractor` 树处理器。
+        2. `MetadataExtractor` 在执行时，会将其提取到的元数据附加到 `self.md` 实例上。
+        3. 从 `self.md` 实例中安全地获取这个元数据。
+        4. 调用 `self.md.reset()` 清理实例状态，确保下次解析不受影响。
+
+        :param markdown_content: 需要解析的Markdown文本字符串。
+        :return: 一个包含元数据的字典。如果未提取到任何数据，则为空字典。
         """
-        # 我们需要调用convert来触发treeprocessor，但我们不关心其HTML输出。
+        # 我们调用 convert() 主要是为了触发树处理器（Treeprocessor）的 run() 方法。
+        # 其返回的HTML在这里是不需要的。
         self.md.convert(markdown_content)
         
-        # 从实例中获取由我们的扩展提取的元数据
+        # `MetadataExtractor` 会将结果存储在 `md.extracted_metadata` 属性中。
+        # 使用 getattr 提供一个默认值，以防扩展因某种原因未能成功附加属性。
         metadata = getattr(self.md, 'extracted_metadata', {})
         
-        # 重置以供下次使用
+        # `markdown` 实例是有状态的。调用 reset() 是一个好习惯，可以清空内部状态，
+        # 避免上一次解析的数据（如脚注等）影响到下一次。
         self.md.reset()
         
         return metadata

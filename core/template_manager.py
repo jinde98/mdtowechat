@@ -1,27 +1,44 @@
-import os
+import os, logging
 
 class TemplateManager:
-    """负责管理Markdown模板文件（头部和尾部）。"""
-    def __init__(self, template_dir="templates"): # 初始化模板管理器，设置模板文件路径。
+    """
+    负责管理文章的页眉（Header）和页脚（Footer）Markdown模板文件。
+    """
+    def __init__(self, template_dir="templates"):
+        """
+        初始化模板管理器。
+        
+        :param template_dir: 存放模板文件的目录路径。
+        """
         self.template_dir = template_dir
         self.header_path = os.path.join(self.template_dir, "header.md")
         self.footer_path = os.path.join(self.template_dir, "footer.md")
+        self.log = logging.getLogger(__name__)
         self._ensure_template_files_exist()
 
     def _ensure_template_files_exist(self):
-        """确保模板目录和默认的空模板文件存在。"""
-        os.makedirs(self.template_dir, exist_ok=True)
-        if not os.path.exists(self.header_path):
-            with open(self.header_path, "w", encoding="utf-8") as f:
-                f.write("<!-- 这是头部模板，在这里编辑你的内容 -->")
-        if not os.path.exists(self.footer_path):
-            with open(self.footer_path, "w", encoding="utf-8") as f:
-                f.write("<!-- 这是尾部模板，在这里编辑你的内容 -->")
+        """
+        确保模板目录和默认的模板文件存在。
+        如果不存在，则会自动创建它们，并填入默认的提示内容。
+        """
+        try:
+            os.makedirs(self.template_dir, exist_ok=True)
+            if not os.path.exists(self.header_path):
+                with open(self.header_path, "w", encoding="utf-8") as f:
+                    f.write("<!-- 这是页眉模板，你可以在此编辑通用头部内容 -->")
+                self.log.info(f"已创建默认页眉模板: {self.header_path}")
+            if not os.path.exists(self.footer_path):
+                with open(self.footer_path, "w", encoding="utf-8") as f:
+                    f.write("<!-- 这是页脚模板，你可以在此编辑通用尾部内容，如引导关注、版权声明等 -->")
+                self.log.info(f"已创建默认页脚模板: {self.footer_path}")
+        except Exception as e:
+            self.log.error(f"创建模板文件或目录时出错: {e}", exc_info=True)
 
     def get_templates(self):
         """
-        读取并返回头部和尾部模板的内容。
-        :return: (header_content, footer_content)
+        读取并返回页眉和页脚模板的内容。
+        
+        :return: 一个元组 (header_content, footer_content)。如果读取失败，则返回空字符串。
         """
         try:
             with open(self.header_path, "r", encoding="utf-8") as f:
@@ -30,42 +47,26 @@ class TemplateManager:
                 footer_content = f.read()
             return header_content, footer_content
         except Exception as e:
-            print(f"Error reading template files: {e}") # 打印读取模板文件时的错误信息。
+            self.log.error(f"读取模板文件时出错: {e}", exc_info=True)
             return "", ""
 
     def save_templates(self, header_content, footer_content):
         """
-        保存头部和尾部模板的内容。
-        :param header_content: 头部模板的Markdown内容
-        :param footer_content: 尾部模板的Markdown内容
-        :return: (success, error_message)
+        将新的内容保存到页眉和页脚模板文件中。
+        
+        :param header_content: 新的页眉Markdown内容。
+        :param footer_content: 新的页脚Markdown内容。
+        :return: 一个元组 (success, error_message)。
+                 如果成功，success为True，error_message为None。
+                 如果失败，success为False，error_message为错误信息的字符串。
         """
         try:
             with open(self.header_path, "w", encoding="utf-8") as f:
                 f.write(header_content)
             with open(self.footer_path, "w", encoding="utf-8") as f:
                 f.write(footer_content)
+            self.log.info("页眉和页脚模板已成功保存。")
             return True, None
         except Exception as e:
-            print(f"Error saving template files: {e}") # 打印保存模板文件时的错误信息。
+            self.log.error(f"保存模板文件时出错: {e}", exc_info=True)
             return False, str(e)
-
-if __name__ == '__main__':
-    # 示例用法
-    tm = TemplateManager()
-    
-    # 保存模板
-    header = "# 这是我的文章头部\n\n---\n"
-    footer = "\n\n---\n\n> 感谢阅读！欢迎关注我的公众号！"
-    success, err = tm.save_templates(header, footer)
-    if success:
-        print("Templates saved successfully.")
-    else:
-        print(f"Failed to save templates: {err}")
-
-    # 读取模板
-    h, f = tm.get_templates()
-    print("\n--- Header Template ---")
-    print(h)
-    print("\n--- Footer Template ---")
-    print(f)

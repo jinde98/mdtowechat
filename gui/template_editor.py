@@ -2,64 +2,68 @@ from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QDialogButtonBox, Q
 from core.template_manager import TemplateManager
 
 class TemplateEditorDialog(QDialog):
+    """
+    一个用于编辑页眉和页脚 Markdown 模板的对话框。
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("编辑模板") # 设置窗口标题。
-        self.setMinimumSize(600, 500) # 设置最小尺寸。
+        self.setWindowTitle("编辑模板")
+        self.setMinimumSize(600, 500)
 
+        # 创建一个 TemplateManager 实例来处理文件的读写
         self.template_manager = TemplateManager()
-        self.init_ui()
-        self.load_templates()
+        self._init_ui()
+        self._load_templates()
 
-    def init_ui(self):
-        """初始化UI组件。"""
-        layout = QVBoxLayout(self) # 创建垂直布局。
+    def _init_ui(self):
+        """
+        初始化对话框的用户界面。
+        """
+        layout = QVBoxLayout(self)
 
-        # 头部模板
-        layout.addWidget(QLabel("头部模板 (Markdown):")) # 头部模板标签。
-        self.header_editor = QTextEdit() # 头部模板编辑器。
-        self.header_editor.setPlaceholderText("在此输入头部模板内容...")
+        # --- 页眉模板编辑区 ---
+        layout.addWidget(QLabel("页眉模板 (Markdown):"))
+        self.header_editor = QTextEdit()
+        self.header_editor.setPlaceholderText("在此输入将添加到每篇文章顶部的通用内容...")
         layout.addWidget(self.header_editor)
 
-        # 尾部模板
-        layout.addWidget(QLabel("尾部模板 (Markdown):")) # 尾部模板标签。
-        self.footer_editor = QTextEdit() # 尾部模板编辑器。
-        self.footer_editor.setPlaceholderText("在此输入尾部模板内容...")
+        # --- 页脚模板编辑区 ---
+        layout.addWidget(QLabel("页脚模板 (Markdown):"))
+        self.footer_editor = QTextEdit()
+        self.footer_editor.setPlaceholderText("在此输入将添加到每篇文章底部的通用内容，例如引导关注、版权声明等...")
         layout.addWidget(self.footer_editor)
 
-        # 按钮
-        self.button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel) # 保存和取消按钮。
-        self.button_box.accepted.connect(self.accept)
-        self.button_box.rejected.connect(self.reject)
+        # --- 底部按钮 ---
+        # 使用标准的 Save 和 Cancel 按钮
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        self.button_box.button(QDialogButtonBox.Save).setText("保存")
+        self.button_box.button(QDialogButtonBox.Cancel).setText("取消")
+        self.button_box.accepted.connect(self.accept) # "Save" 按钮连接到 accept 槽
+        self.button_box.rejected.connect(self.reject) # "Cancel" 按钮连接到 reject 槽
         layout.addWidget(self.button_box)
 
-    def load_templates(self):
-        """加载现有模板到编辑器中。"""
+    def _load_templates(self):
+        """
+        从 TemplateManager 加载当前的模板内容并填充到编辑器中。
+        """
         header, footer = self.template_manager.get_templates()
         self.header_editor.setPlainText(header)
         self.footer_editor.setPlainText(footer)
 
     def accept(self):
-        """保存模板并关闭对话框。"""
+        """
+        当用户点击“保存”按钮时被调用。
+        此方法负责将UI中的内容写回模板文件。
+        """
         header_content = self.header_editor.toPlainText()
         footer_content = self.footer_editor.toPlainText()
         
+        # 调用 TemplateManager 来执行实际的文件保存操作
         success, error_message = self.template_manager.save_templates(header_content, footer_content)
         
-        if success: # 如果保存成功。
+        if success:
             QMessageBox.information(self, "成功", "模板已成功保存！")
-            super().accept()
-        else: # 如果保存失败。
+            super().accept()  # 保存成功后关闭对话框
+        else:
             QMessageBox.critical(self, "错误", f"保存模板失败: {error_message}")
-
-if __name__ == '__main__':
-    from PyQt5.QtWidgets import QApplication
-    import sys
-
-    app = QApplication(sys.argv)
-    dialog = TemplateEditorDialog()
-    if dialog.exec_():
-        print("Templates were saved.")
-    else:
-        print("Template editing was cancelled.")
-    sys.exit()
+            # 保存失败时，不关闭对话框，让用户可以重试或取消

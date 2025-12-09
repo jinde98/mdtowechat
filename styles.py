@@ -1,5 +1,8 @@
 # styles.py
+# 本文件定义了所有可用的渲染主题。
+# 每个主题都是一个字典，键是HTML标签名，值是对应的内联CSS样式字符串。
 
+# 蓝色主题 - 专业、商务风格
 BLUE = {
     'body': 'font-family: -apple-system-font,BlinkMacSystemFont, Helvetica Neue, PingFang SC, Hiragino Sans GB , Microsoft YaHei UI , Microsoft YaHei ,Arial,sans-serif; font-size: 15px; line-height: 1.75; text-align: left;',
     'wrapper': 'width: 100%; max-width: 750px; margin: 0 auto;',
@@ -28,6 +31,7 @@ BLUE = {
     'strong': 'color: #0F4C81; font-weight: bold;',
 }
 
+# 优雅主题 - 简洁、现代，带有阴影效果
 NICE = {
     'section': 'padding: 0 30px; font-family: ptima-Regular; word-break: break-all;',
     'body': 'font-size: 14px; letter-spacing: 0.05em; color:#595959;',
@@ -57,6 +61,7 @@ NICE = {
     'code_block': 'font-family: "Fira Code", Menlo, "Operator Mono", Consolas, Monaco, monospace; font-size: 0.9em;',
 }
 
+# 绿色主题 - 清新、自然风格
 GREEN = {
     'section': 'font-size: 15px; padding: 0 30px; word-spacing: 0px; word-break: break-word; word-wrap: break-word; text-align: justify; line-height: 1.25; color: #2b2b2b; font-family: Optima-Regular, Optima, PingFangTC-Light, PingFangSC-light, PingFangTC-light; letter-spacing: 2px; background-image: linear-gradient(90deg, rgba(50, 0, 0, 0.04) 3%, rgba(0, 0, 0, 0) 3%), linear-gradient(360deg, rgba(50, 0, 0, 0.04) 3%, rgba(0, 0, 0, 0) 3%); background-size: 20px 20px; background-position: center center;',
     'h1': "margin-top: 30px; margin-bottom: 15px; font-weight: bold; color: black; font-size: 25px;",
@@ -88,6 +93,7 @@ GREEN = {
     'figcaption': "display: block; font-size: 14px; color: #2b2b2b;",
 }
 
+# 极客黑主题 - 模仿技术博客风格
 GEEK_BLACK = {
     'section': 'font-size: 15px; color: black; padding: 0 30px; line-height: 1.6; word-spacing: 0px; letter-spacing: 0px; word-break: break-word; word-wrap: break-word; text-align: justify; font-family: Optima-Regular, Optima, PingFangSC-light, PingFangTC-light, \'PingFang SC\', Cambria, Cochin, Georgia, Times, \'Times New Roman\', serif;',
     'blockquote': 'display: block; font-size: 0.9em; overflow: auto; overflow-scrolling: touch; border-left: 4px solid rgb(221, 221, 221); background: rgba(0, 0, 0, 0.05); padding-top: 10px; padding-bottom: 10px; padding-right: 1em; padding-left: 1em; color: rgb(119, 119, 119); quotes: none; margin-top: 1.2em; margin-bottom: 1.2em;',
@@ -130,6 +136,7 @@ GEEK_BLACK = {
     'footnote-item p em': 'font-style: italic; color: black;',
 }
 
+# 橙红色主题 - 温暖、活泼风格
 ORANGE_RED = {
     'section': 'font-size: 15px; color: black; padding: 0 30px; line-height: 1.6; word-spacing: 0px; letter-spacing: 0px; word-break: break-word; word-wrap: break-word; text-align: justify; font-family: Optima-Regular, Optima, PingFangSC-light, PingFangTC-light, \'PingFang SC\', Cambria, Cochin, Georgia, Times, \'Times New Roman\', serif;',
     'blockquote': 'display: block; font-size: 0.9em; overflow: auto; overflow-scrolling: touch; border-left: 3px solid rgba(0, 0, 0, 0.4); color: #6a737d; padding-top: 10px; padding-bottom: 10px; padding-left: 20px; padding-right: 10px; margin-bottom: 20px; margin-top: 20px; border-left-color: rgb(239, 112, 96); background: #fff9f9;',
@@ -171,6 +178,7 @@ ORANGE_RED = {
     'footnote-item p em': 'font-style: italic; color: black;',
 }
 
+# 蓝色辉光主题 - 赛博朋克、科技感风格
 BLUE_GLOW = {
     'section': 'font-size: 15px; color: black; padding: 0 30px; line-height: 1.6; word-spacing: 0px; letter-spacing: 0px; word-wrap: break-word; text-align: justify; font-family: \'PingFang SC\', \'Microsoft YaHei\', sans-serif; word-break: break-all;',
     'blockquote': 'display: block; font-size: 0.9em; overflow: auto; overflow-scrolling: touch; border-left: 4px solid #0077ff; color: #6a737d; padding: 1em; margin: 1.5em 0; background: #f0f8ff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 119, 255, 0.1);',

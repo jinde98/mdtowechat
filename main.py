@@ -8,61 +8,77 @@ import logging
 
 def create_default_config(config_path="config.yaml"):
     """
-    创建默认的config.yaml文件，如果它不存在的话。
+    如果 config.yaml 文件不存在，则创建一个默认的配置文件。
+    这样做可以避免在首次启动时因缺少配置文件而引发错误，并为用户提供一个清晰的配置模板。
     """
-    log = logging.getLogger("MdToWeChat") # 获取日志记录器实例。
-    if not os.path.exists(config_path): # 如果配置文件不存在，则创建默认配置。
+    log = logging.getLogger("MdToWeChat")  # 获取日志记录器实例
+    if not os.path.exists(config_path):  # 检查配置文件是否存在
         default_config = {
             "DEFAULT_AUTHOR": "你的默认作者",
             "wechat": {
                 "app_id": "your_wechat_app_id",
                 "app_secret": "your_wechat_app_secret"
             },
-            "DEFAULT_COVER_MEDIA_ID": "", # 预上传的默认封面图media_id
+            "DEFAULT_COVER_MEDIA_ID": "",  # 预上传的默认封面图media_id
             "STORAGE_DAYS_TO_KEEP": 30
         }
         try:
-            with open(config_path, "w", encoding="utf-8") as f: # 允许写入Unicode字符。
+            # 使用 'w' 模式创建并写入文件，encoding='utf-8' 支持中文字符
+            with open(config_path, "w", encoding="utf-8") as f:
+                # allow_unicode=True 确保YAML文件能正确显示中文
                 yaml.safe_dump(default_config, f, allow_unicode=True)
-            log.info(f"Created default config.yaml at {config_path}") # 记录默认配置文件创建成功信息。
+            log.info(f"已在 {config_path} 创建默认的 config.yaml 文件。")
         except Exception as e:
-            log.error(f"Error creating default config.yaml: {e}") # 记录创建默认配置文件失败信息。
+            log.error(f"创建默认的 config.yaml 文件时出错: {e}")
 
-if __name__ == "__main__": # 程序入口。
-    # 首先设置日志记录器
+if __name__ == "__main__":  # 程序的唯一入口点
+    # 步骤1: 初始化日志记录器
+    # 这是整个应用程序启动的第一步，确保所有后续操作都能被记录下来。
     log = setup_logger()
     
     try:
-        log.info("Application starting...") # 记录应用启动信息。
-        # 将项目根目录添加到sys.path，以便正确导入模块
+        log.info("应用程序开始启动...")
+        
+        # 步骤2: 设置项目根目录到系统路径
+        # 这确保了无论从哪里运行main.py，所有模块（如core, gui）都能被正确导入。
         project_root = os.path.dirname(os.path.abspath(__file__))
         if project_root not in sys.path:
             sys.path.insert(0, project_root)
 
-        # 确保data, logs, assets目录存在
+        # 步骤3: 确保核心目录存在
+        # 这些是存放数据、日志和静态资源的文件夹，程序运行所必需。
         os.makedirs("data", exist_ok=True)
         os.makedirs("logs", exist_ok=True)
         os.makedirs("assets", exist_ok=True)
 
-        # 检查并创建默认config.yaml
+        # 步骤4: 检查并创建默认配置文件
         create_default_config()
 
+        # 步骤5: 初始化PyQt应用程序
         app = QApplication(sys.argv)
 
-        # 设置应用程序图标
+        # 步骤6: 设置应用程序的视觉元素
+        # 设置图标
         from PyQt5.QtGui import QIcon
         app.setWindowIcon(QIcon('assets/icon.png'))
         
-        # 设置全局字体大小，使其更舒适
+        # 设置全局默认字体大小，以提高UI的可读性
         from PyQt5.QtGui import QFont
         default_font = QFont()
-        default_font.setPointSize(11) # 可以根据需要调整大小
+        default_font.setPointSize(11)  # 11号字体在大多数屏幕上看起来很舒适
         app.setFont(default_font)
 
+        # 步骤7: 创建并显示主窗口
         main_window = MainWindow()
         main_window.show()
-        log.info("MainWindow shown. Entering main event loop.") # 记录主窗口显示信息，进入主事件循环。
+        log.info("主窗口已显示。进入Qt主事件循环。")
+        
+        # 步骤8: 启动事件循环
+        # app.exec_() 会阻塞程序，直到用户关闭主窗口。
+        # sys.exit() 确保程序能干净地退出。
         sys.exit(app.exec_())
+        
     except Exception as e:
-        log.critical(f"Unhandled exception occurred: {e}", exc_info=True) # 记录未处理的异常信息。
+        # 顶层异常捕获：这是最后的防线，防止任何未被捕获的异常导致程序闪退。
+        log.critical(f"发生未处理的致命错误: {e}", exc_info=True)
         sys.exit(1)

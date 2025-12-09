@@ -1,112 +1,119 @@
-import os
+import os, logging
 import datetime
 import shutil
 import re
 
 class StorageManager:
-    """负责管理文件的存储和清理，包括Markdown文件、HTML存档和临时图片。"""
-    def __init__(self, base_dir="data"): # 初始化存储管理器，创建基础目录。
+    """
+    负责管理文件的存储和清理，包括用户手动保存的Markdown文件和系统自动生成的HTML存档。
+    """
+    def __init__(self, base_dir="data"):
+        """
+        初始化存储管理器。
+        
+        :param base_dir: 用于存放所有数据和存档的根目录。
+        """
         self.base_dir = base_dir
         os.makedirs(self.base_dir, exist_ok=True)
+        self.log = logging.getLogger(__name__)
 
-    def _get_daily_dir(self):
+    def _get_daily_archive_dir(self):
         """
-        获取当日的存储目录路径，如果不存在则创建。
-        格式为 `base_dir/YYYY-MM-DD/`
+        获取或创建用于存放当日HTML存档的目录路径。
+        目录结构为 `base_dir/YYYY-MM-DD/`。
         """
         today_str = datetime.date.today().strftime("%Y-%m-%d")
         daily_dir = os.path.join(self.base_dir, today_str)
         os.makedirs(daily_dir, exist_ok=True)
         return daily_dir
 
-    def _generate_filename(self, title, extension=".md"):
+    def _generate_filename(self, title, extension):
         """
-        根据标题和当前时间戳生成文件名。
-        文件名规则：`标题前20字符_时间戳.extension`
-        对标题进行清理，移除特殊字符
+        根据文章标题和当前时间戳生成一个对文件系统安全的文件名。
+        
+        命名规则: `[清理后的标题前20个字符]_[HHMMSS].[extension]`
+        
+        :param title: 文章标题。
+        :param extension: 文件扩展名（例如 ".md" 或 ".html"）。
+        :return: 生成的文件名字符串。
         """
-        # 移除Markdown特殊字符和文件名非法字符
+        # 移除Windows和Markdown文件名中的非法字符
         safe_title = re.sub(r'[\\/:*?"<>|#\[\]()`]', '', title)
-        safe_title = safe_title.strip()
-        safe_title = safe_title[:20].strip() if safe_title else "untitled"
+        safe_title = safe_title.strip() or "untitled"
+        # 截取前20个字符以避免文件名过长
+        safe_title = safe_title[:20]
         
         timestamp = datetime.datetime.now().strftime("%H%M%S")
         return f"{safe_title}_{timestamp}{extension}"
 
     def save_markdown_file(self, filepath, markdown_content):
         """
-        保存Markdown内容到指定文件路径。
-        :param filepath: 完整的Markdown文件路径
-        :param markdown_content: Markdown字符串内容
+        将Markdown内容保存到用户指定的任意文件路径。
+        此方法用于响应用户的“保存”或“另存为”操作。
+        
+        :param filepath: 完整的目标文件路径。
+        :param markdown_content: 要保存的Markdown文本内容。
+        :return: 保存成功后的文件路径。
         """
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(markdown_content)
-        return filepath
+        try:
+            # 确保目标文件的父目录存在
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(markdown_content)
+            self.log.info(f"Markdown文件已成功保存到: {filepath}")
+            return filepath
+        except Exception as e:
+            self.log.error(f"保存Markdown文件到 '{filepath}' 时失败: {e}", exc_info=True)
+            raise
 
     def save_html_archive(self, title, html_content):
         """
-        将HTML内容保存到当日的存档目录。
-        文件名根据标题生成。
-        :param title: 文章标题
-        :param html_content: HTML字符串内容
-        :return: 保存的HTML文件路径
+        将渲染后的HTML内容作为存档，保存到当日的归档目录中。
+        此方法用于系统内部备份，而非用户直接调用。
+        
+        :param title: 文章标题，用于生成文件名。
+        :param html_content: 要保存的HTML文本内容。
+        :return: 保存成功后的HTML文件路径。
         """
-        daily_dir = self._get_daily_dir()
-        html_filename = self._generate_filename(title, ".html")
-        html_filepath = os.path.join(daily_dir, html_filename)
-        with open(html_filepath, "w", encoding="utf-8") as f:
-            f.write(html_content)
-        return html_filepath
+        try:
+            daily_dir = self._get_daily_archive_dir()
+            html_filename = self._generate_filename(title, ".html")
+            html_filepath = os.path.join(daily_dir, html_filename)
+            with open(html_filepath, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            self.log.info(f"HTML存档已成功保存到: {html_filepath}")
+            return html_filepath
+        except Exception as e:
+            self.log.error(f"保存HTML存档时失败: {e}", exc_info=True)
+            raise
 
-    def clean_old_articles(self, days_to_keep=30):
+    def clean_old_archives(self, days_to_keep=30):
         """
-        清理指定天数之前的旧文章文件夹。
+        清理指定天数之前的旧HTML归档文件夹。
+        
+        :param days_to_keep: 要保留的最近天数。
         """
+        if days_to_keep <= 0:
+            self.log.info("清理周期设置为0天或更少，将不会清理任何旧存档。")
+            return
+            
         cutoff_date = datetime.date.today() - datetime.timedelta(days=days_to_keep)
+        self.log.info(f"开始清理 {cutoff_date} 之前的旧存档...")
+        
+        deleted_count = 0
         for entry in os.listdir(self.base_dir):
             full_path = os.path.join(self.base_dir, entry)
             if os.path.isdir(full_path):
                 try:
+                    # 检查目录名是否是 "YYYY-MM-DD" 格式
                     dir_date = datetime.datetime.strptime(entry, "%Y-%m-%d").date()
                     if dir_date < cutoff_date:
-                        print(f"Deleting old directory: {full_path}")
                         shutil.rmtree(full_path)
-                except ValueError:
-                    # 忽略不符合日期格式的目录。
+                        self.log.info(f"已删除旧的存档目录: {full_path}")
+                        deleted_count += 1
+                except (ValueError, OSError) as e:
+                    # 忽略不符合日期格式的目录或删除时发生错误
+                    self.log.debug(f"跳过或删除失败: {full_path}。原因: {e}")
                     pass
-
-# 移除旧的 save_article 方法，或将其重命名为 save_full_article_archive
-# 如果需要保留其功能，可以这样定义：
-# def save_full_article_archive(self, title, markdown_content, html_content, local_image_paths=None):
-#     """
-#     旧的保存方法，保存原始Markdown内容、渲染后的HTML内容以及关联的本地图片。
-#     """
-#     daily_dir = self._get_daily_dir()
-#     md_filename = self._generate_filename(title, ".md")
-#     html_filename = self._generate_filename(title, ".html")
-#     md_filepath = os.path.join(daily_dir, md_filename)
-#     html_filepath = os.path.join(daily_dir, html_filename)
-#     with open(md_filepath, "w", encoding="utf-8") as f:
-#         f.write(markdown_content)
-#     with open(html_filepath, "w", encoding="utf-8") as f:
-#         f.write(html_content)
-#     # 复制本地图片逻辑...
-#     return md_filepath, html_filepath, []
-
-
-if __name__ == '__main__':
-    # 示例用法
-    storage_manager = StorageManager(base_dir="test_data")
-
-    # 测试 save_markdown_file
-    md_test_path = "test_data/my_document.md"
-    storage_manager.save_markdown_file(md_test_path, "# Hello World\n\nThis is a test markdown.")
-    print(f"Markdown saved to: {md_test_path}")
-
-    # 测试 save_html_archive
-    html_test_path = storage_manager.save_html_archive("测试HTML文章", "<h1>Hello HTML</h1><p>This is test HTML.</p>")
-    print(f"HTML archive saved to: {html_test_path}")
-
-    # 清理旧文章示例
-    # storage_manager.clean_old_articles(days_to_keep=0)
+        
+        self.log.info(f"旧存档清理完成。共删除了 {deleted_count} 个目录。")

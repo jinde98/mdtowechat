@@ -7,6 +7,8 @@ __pycache__/
 config.yaml
 logs/
 data/
+build/
+dist/
 access_token.json
 temp_images/
 橙红.html

@@ -1,62 +1,156 @@
-import os
+import os, logging
 import uuid
 from PyQt5.QtWidgets import QTextEdit, QApplication
 from PyQt5.QtGui import QImage, QTextCursor
 
+from PyQt5.QtCore import QThread
+from core.workers import ImageUploadWorker
+import logging
+
 class PastingImageEditor(QTextEdit):
     """
-    一个自定义的QTextEdit，增加了粘贴图片时自动上传的功能。
+    一个自定义的 QTextEdit 组件，专门用于处理图片的粘贴操作。
+
+    它重写了Qt的粘贴机制，实现了当用户从剪贴板粘贴图片时，
+    能够以**异步**的方式将图片上传到微信服务器，并用返回的URL替换占位符。
     """
     def __init__(self, wechat_api, parent=None):
         super().__init__(parent)
         self.wechat_api = wechat_api
+        self.log = logging.getLogger(__name__)
+        # 使用一个字典来存储正在进行的上传任务，以防止线程和worker被垃圾回收
+        self.upload_tasks = {}
 
     def canInsertFromMimeData(self, source):
-        """只接受包含图片或文本的数据。"""
+        """
+        重写此方法以声明本组件能处理的数据类型。
+        这里我们告诉Qt，除了默认的文本数据，我们还能处理图片数据。
+        """
         return source.hasImage() or super().canInsertFromMimeData(source)
 
     def insertFromMimeData(self, source):
-        """重写粘贴逻辑，处理图片数据。"""
+        """
+        重写核心的粘贴逻辑。
+        当粘贴事件发生时，此方法被调用。
+        """
         if source.hasImage():
-            # 注意：为了简化，此处同步执行图片上传。在生产环境中，为避免UI阻塞，建议使用QThread进行异步操作。
-            self.paste_image(source.imageData())
+            # 如果剪贴板中包含图片数据，则调用我们自定义的异步图片处理流程。
+            self.paste_image_async(source.imageData())
         else:
+            # 如果是纯文本，则执行父类的默认粘贴行为。
             super().insertFromMimeData(source)
 
-    def paste_image(self, image: QImage):
-        """处理图片粘贴的完整流程：保存、上传、替换。"""
+    def paste_image_async(self, image: QImage):
+        """
+        以异步方式处理图片粘贴的完整流程：保存 -> 插入占位符 -> 启动后台上传。
+        
+        :param image: 从剪贴板获取的 QImage 对象。
+        """
         cursor = self.textCursor()
         
-        # 1. 将图片保存到临时文件
+        # 步骤 1: 将图片从内存保存为一个临时的本地文件
         temp_dir = 'temp_images'
         os.makedirs(temp_dir, exist_ok=True)
-        filename = f"{uuid.uuid4().hex}.png"
+        # 使用UUID确保文件名唯一
+        upload_id = uuid.uuid4().hex
+        filename = f"{upload_id}.png"
         temp_path = os.path.join(temp_dir, filename)
         image.save(temp_path, "PNG")
 
-        # 2. 在光标处插入占位符并保持选中状态，以便后续替换
-        placeholder = f"![Uploading {filename}...]()"
+        # 步骤 2: 在光标处插入一个带唯一ID的占位符
+        placeholder = f"![正在上传 {filename}...](uploading://{upload_id})"
         cursor.insertText(placeholder)
-        cursor.movePosition(QTextCursor.PreviousCharacter, QTextCursor.KeepAnchor, len(placeholder))
         
-        # 立即处理UI事件，确保占位符显示出来
-        QApplication.processEvents()
+        # 步骤 3: 创建并启动后台上传Worker
+        thread = QThread()
+        worker = ImageUploadWorker(temp_path, self.wechat_api)
+        worker.moveToThread(thread)
 
-        # 3. 上传临时图片文件
-        wechat_url, error_msg = self.wechat_api.upload_image_for_content(temp_path)
+        # 步骤 4: 连接信号和槽
+        # 当worker完成时，调用 _on_image_upload_finished 槽函数
+        worker.finished.connect(self._on_image_upload_finished)
+        # 当线程的事件循环结束后，安全地删除worker和thread对象
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        # 关键：当线程结束后，再从任务字典中移除它，以确保在线程运行期间始终存在强引用
+        thread.finished.connect(lambda: self._cleanup_upload_task(upload_id))
+        # 启动worker的run方法
+        thread.started.connect(worker.run)
         
-        # 4. 根据上传结果，用最终的Markdown链接替换占位符
-        if wechat_url:
-            final_markdown = f"![pasted_image]({wechat_url})"
+        # 步骤 5: 存储线程和worker的引用，防止被垃圾回收
+        self.upload_tasks[upload_id] = (thread, worker)
+        
+        # 步骤 6: 启动线程
+        thread.start()
+        self.log.info(f"已为图片 {temp_path} 启动后台上传线程。")
+
+    def _on_image_upload_finished(self, success, original_path, result):
+        """
+        槽函数：当图片上传完成后被调用。
+        
+        :param success: 上传是否成功。
+        :param original_path: 原始临时文件的路径。
+        :param result: 如果成功，是微信返回的URL；如果失败，是错误信息。
+        """
+        upload_id = os.path.basename(original_path).replace('.png', '')
+        self.log.info(f"图片上传任务 {upload_id} 完成。成功: {success}")
+        
+        # 在编辑器中查找对应的占位符
+        # 我们使用之前插入的唯一ID (uploading://{upload_id}) 来定位
+        placeholder_url = f"uploading://{upload_id}"
+        
+        # 创建一个 Document-level 的查找
+        doc = self.document()
+        cursor = QTextCursor(doc)
+        
+        # 从文档开头开始查找
+        cursor = doc.find(placeholder_url, cursor)
+        
+        if not cursor.isNull():
+            # 如果找到了占位符
+            if success:
+                final_markdown = f"![pasted_image]({result})"
+            else:
+                # 截断过长的错误信息
+                error_msg_short = (result[:50] + '...') if len(result) > 50 else result
+                final_markdown = f"![上传失败: {error_msg_short}]()"
+            
+            # 使用找到的光标替换占位符
+            # 我们需要选中整个Markdown图片链接 `![...](...)`
+            cursor.select(QTextCursor.LineUnderCursor) # 选中整行可能过于宽泛，但能确保选中
+            # 一个更精确的方法是手动计算占位符的长度并选择它
+            # 但查找并替换通常更健壮
+            
+            # 重新构造占位符以精确选择
+            filename = os.path.basename(original_path)
+            full_placeholder = f"![正在上传 {filename}...](uploading://{upload_id})"
+            
+            # 再次查找并精确选择
+            cursor = doc.find(full_placeholder, QTextCursor(doc))
+            if not cursor.isNull():
+                 cursor.insertText(final_markdown)
+            else:
+                 self.log.warning(f"无法在文档中再次找到占位符: {full_placeholder}")
         else:
-            final_markdown = f"![Upload FAILED: {error_msg}]()"
-        
-        # 因为占位符仍被选中，所以这次插入会直接替换它
-        cursor.insertText(final_markdown)
+            self.log.warning(f"图片上传完成，但无法在文档中找到占位符URL: {placeholder_url}")
 
-        # 5. 清理本地的临时文件
+        # 清理本地的临时文件
         try:
-            os.remove(temp_path)
+            if os.path.exists(original_path):
+                os.remove(original_path)
+                self.log.info(f"已删除临时图片文件: {original_path}")
         except Exception as e:
-            # 在后台打印错误，不打扰用户
-            print(f"Error removing temp file {temp_path}: {e}")
+            self.log.error(f"删除临时图片文件 {original_path} 时出错: {e}")
+            
+        # 请求线程的事件循环退出。线程将在完成当前任务后安全地停止。
+        if upload_id in self.upload_tasks:
+            thread, _ = self.upload_tasks[upload_id]
+            thread.quit()
+
+    def _cleanup_upload_task(self, upload_id):
+        """
+        槽函数：在一个上传线程完全结束后，从任务字典中安全地移除其引用。
+        """
+        if upload_id in self.upload_tasks:
+            self.log.info(f"清理已完成的上传任务: {upload_id}")
+            del self.upload_tasks[upload_id]
