@@ -5,7 +5,7 @@ import os
 import yaml
 from core.logger import setup_logger
 import logging
-from qtmodern6 import styles
+from qtmodern6 import styles, windows
 
 def create_default_config(config_path="config.yaml"):
     """
@@ -57,7 +57,6 @@ if __name__ == "__main__":  # 程序的唯一入口点
 
         # 步骤5: 初始化PyQt应用程序
         app = QApplication(sys.argv)
-        styles.dark(app)
 
         # 步骤6: 设置应用程序的视觉元素
         # 设置图标
@@ -66,9 +65,9 @@ if __name__ == "__main__":  # 程序的唯一入口点
         
         # 设置全局默认字体大小，以提高UI的可读性
         from PySide6.QtGui import QFont
-        # default_font = QFont()
-        # default_font.setPointSize(11)  # 11号字体在大多数屏幕上看起来很舒适
-        # app.setFont(default_font)
+        default_font = QFont()
+        default_font.setPointSize(11)  # 11号字体在大多数屏幕上看起来很舒适
+        app.setFont(default_font)
         
 
         # 步骤7: 创建并显示主窗口
