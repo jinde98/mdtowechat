@@ -1,4 +1,4 @@
-from PyQt5.QtCore import QObject, pyqtSignal
+from PySide6.QtCore import QObject, Signal
 from bs4 import BeautifulSoup
 from core.crawler import Crawler
 from core.llm import LLMProcessor
@@ -16,9 +16,9 @@ class CrawlWorker(QObject):
     """
     # 定义信号：
     # finished 信号在任务完成时发射，携带一个布尔值表示成功与否，以及一个包含结果或错误信息的对象。
-    finished = pyqtSignal(bool, object) 
+    finished = Signal(bool, object) 
     # progress 信号在任务执行过程中发射，用于向UI线程报告进度更新。
-    progress = pyqtSignal(str)
+    progress = Signal(str)
 
     def __init__(self, url, system_prompt):
         super().__init__()
@@ -70,8 +70,8 @@ class PublishWorker(QObject):
     一个在后台线程中执行完整发布流程的Worker。
     """
     # success: 成功或失败, message: 最终显示给用户的消息
-    finished = pyqtSignal(bool, str) 
-    progress = pyqtSignal(str)
+    finished = Signal(bool, str) 
+    progress = Signal(str)
 
     def __init__(self, all_articles_data, use_template, current_mode):
         super().__init__()
@@ -164,8 +164,8 @@ class RewriteWorker(QObject):
     一个在后台线程中执行AI改写任务的Worker。
     """
     # success: 成功或失败, str: 改写后的内容或错误信息
-    finished = pyqtSignal(bool, str)
-    progress = pyqtSignal(str)
+    finished = Signal(bool, str)
+    progress = Signal(str)
 
     def __init__(self, original_content, custom_prompt, system_prompt):
         super().__init__()
@@ -206,7 +206,7 @@ class ImageUploadWorker(QObject):
     一个在后台线程中执行单个图片上传任务的Worker。
     """
     # success: 成功或失败, original_path: 原始路径, result: 上传后的URL或错误信息
-    finished = pyqtSignal(bool, str, str)
+    finished = Signal(bool, str, str)
 
     def __init__(self, image_path, wechat_api):
         super().__init__()

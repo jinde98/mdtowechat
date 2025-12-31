@@ -1,9 +1,9 @@
 import os, logging
 import uuid
-from PyQt5.QtWidgets import QTextEdit, QApplication
-from PyQt5.QtGui import QImage, QTextCursor
+from PySide6.QtWidgets import QTextEdit, QApplication
+from PySide6.QtGui import QImage, QTextCursor
 
-from PyQt5.QtCore import QThread
+from PySide6.QtCore import QThread
 from core.workers import ImageUploadWorker
 import logging
 

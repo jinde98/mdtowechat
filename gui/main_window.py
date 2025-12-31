@@ -1,15 +1,16 @@
 import sys
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
-                             QTextEdit, QAction, QFileDialog, QSplitter, QActionGroup, 
+from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
+                             QTextEdit, QFileDialog, QSplitter, 
                              QMenu, QListWidget, QPushButton, QListWidgetItem, QFrame, QLabel, QAbstractItemView, QLineEdit)
 from functools import partial
 import os
 import yaml
-from PyQt5.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWebEngineWidgets import QWebEngineView
 import logging
-from PyQt5.QtCore import Qt, QUrl, QSize, pyqtSlot, QTimer, QObject, QThread, pyqtSignal
-from PyQt5.QtWebChannel import QWebChannel
-from PyQt5.QtGui import QColor, QFont, QIcon
+from PySide6.QtCore import Qt, QUrl, QSize, Slot, QTimer, QObject, QThread, Signal
+from PySide6.QtWebChannel import QWebChannel
+from PySide6.QtGui import QColor, QFont, QIcon
 from bs4 import BeautifulSoup
 
 # 将项目根目录添加到sys.path，以便正确解析模块
@@ -29,7 +30,7 @@ from core.template_manager import TemplateManager
 from gui.status_dialog import StatusDialog
 from gui.settings_dialog import SettingsDialog
 from gui.rewrite_dialog import RewriteDialog
-from PyQt5.QtWidgets import QDialog, QMessageBox
+from PySide6.QtWidgets import QDialog, QMessageBox
 from core.crawler import Crawler
 from core.llm import LLMProcessor
 from core.workers import CrawlWorker, ImageUploadWorker, PublishWorker, RewriteWorker
@@ -50,7 +51,7 @@ class MainWindow(QMainWindow):
         
         # --- 窗口初始化 ---
         # 获取屏幕可用尺寸，并设置窗口为屏幕的80%，居中显示
-        screen_rect = QApplication.desktop().availableGeometry()
+        screen_rect = QApplication.primaryScreen().availableGeometry()
         width = int(screen_rect.width() * 0.8)
         height = int(screen_rect.height() * 0.8)
         x = int((screen_rect.width() - width) / 2)
@@ -967,7 +968,7 @@ class MainWindow(QMainWindow):
         self._is_syncing_scroll = True
         self.html_preview.page().runJavaScript(js_code, lambda: setattr(self, '_is_syncing_scroll', False))
 
-    @pyqtSlot(float)
+    @Slot(float)
     def on_preview_scrolled(self, percentage):
         """
         槽函数：当预览区滚动时（由注入的JS代码通过QWebChannel调用），按比例同步滚动编辑器。

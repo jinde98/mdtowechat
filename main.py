@@ -1,10 +1,11 @@
 import sys
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication
 from gui.main_window import MainWindow
 import os
 import yaml
 from core.logger import setup_logger
 import logging
+from qtmodern6 import styles
 
 def create_default_config(config_path="config.yaml"):
     """
@@ -56,17 +57,19 @@ if __name__ == "__main__":  # 程序的唯一入口点
 
         # 步骤5: 初始化PyQt应用程序
         app = QApplication(sys.argv)
+        styles.dark(app)
 
         # 步骤6: 设置应用程序的视觉元素
         # 设置图标
-        from PyQt5.QtGui import QIcon
+        from PySide6.QtGui import QIcon
         app.setWindowIcon(QIcon('assets/icon.png'))
         
         # 设置全局默认字体大小，以提高UI的可读性
-        from PyQt5.QtGui import QFont
-        default_font = QFont()
-        default_font.setPointSize(11)  # 11号字体在大多数屏幕上看起来很舒适
-        app.setFont(default_font)
+        from PySide6.QtGui import QFont
+        # default_font = QFont()
+        # default_font.setPointSize(11)  # 11号字体在大多数屏幕上看起来很舒适
+        # app.setFont(default_font)
+        
 
         # 步骤7: 创建并显示主窗口
         main_window = MainWindow()
@@ -76,7 +79,7 @@ if __name__ == "__main__":  # 程序的唯一入口点
         # 步骤8: 启动事件循环
         # app.exec_() 会阻塞程序，直到用户关闭主窗口。
         # sys.exit() 确保程序能干净地退出。
-        sys.exit(app.exec_())
+        sys.exit(app.exec())
         
     except Exception as e:
         # 顶层异常捕获：这是最后的防线，防止任何未被捕获的异常导致程序闪退。

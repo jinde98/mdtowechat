@@ -1,10 +1,10 @@
 # gui/publish_dialog.py
 import sys
-from PyQt5.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout,
                              QLabel, QLineEdit, QTextEdit, QPushButton,
                              QDialogButtonBox, QSizePolicy, QSpacerItem,
                              QListWidget, QListWidgetItem, QWidget, QFileDialog)
-from PyQt5.QtCore import Qt
+from PySide6.QtCore import Qt
 
 class PublishDialog(QDialog):
     """

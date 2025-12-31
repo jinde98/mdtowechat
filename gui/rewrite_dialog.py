@@ -1,5 +1,5 @@
 import sys
-from PyQt5.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
+from PySide6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
                              QTextEdit, QPushButton, QDialogButtonBox, QMessageBox)
 import yaml
 import os
