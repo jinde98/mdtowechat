@@ -5,7 +5,6 @@ import os
 import yaml
 from core.logger import setup_logger
 import logging
-from qtmodern6 import styles, windows
 
 def create_default_config(config_path="config.yaml"):
     """
