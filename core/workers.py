@@ -20,11 +20,13 @@ class CrawlWorker(QObject):
     # progress 信号在任务执行过程中发射，用于向UI线程报告进度更新。
     progress = pyqtSignal(str)
 
-    def __init__(self, url, system_prompt):
+    def __init__(self, url, system_prompt, crawler, llm_processor):
         super().__init__()
         self.url = url
         self.system_prompt = system_prompt
         self.parser = ContentParser()
+        self.crawler = crawler
+        self.llm_processor = llm_processor
 
     def run(self):
         """
@@ -33,15 +35,13 @@ class CrawlWorker(QObject):
         try:
             # 步骤 1: 抓取网页内容
             self.progress.emit("正在从网页抓取内容...")
-            crawler = Crawler()
-            markdown_content, error = crawler.fetch(self.url)
+            markdown_content, error = self.crawler.fetch(self.url)
             if error:
                 raise Exception(f"抓取失败: {error}")
 
             # 步骤 2: 调用大语言模型（LLM）处理内容
             self.progress.emit("抓取成功，正在由AI处理内容...")
-            llm_processor = LLMProcessor()
-            processed_content, error = llm_processor.process_content(markdown_content, self.system_prompt)
+            processed_content, error = self.llm_processor.process_content(markdown_content, self.system_prompt)
             if error:
                 raise Exception(f"AI处理失败: {error}")
 

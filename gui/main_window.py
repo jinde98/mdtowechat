@@ -34,6 +34,30 @@ from core.crawler import Crawler
 from core.llm import LLMProcessor
 from core.workers import CrawlWorker, ImageUploadWorker, PublishWorker, RewriteWorker
 
+class ScrollHandler(QObject):
+    """
+    一个简单的QObject子类，用于处理QWebChannel从JavaScript发出的滚动事件。
+    将此对象注册到QWebChannel可以避免将整个MainWindow暴露给JS，从而减少Qt警告。
+    """
+    def __init__(self, main_window_instance, parent=None):
+        super().__init__(parent)
+        self._main_window = main_window_instance # 保存对MainWindow实例的弱引用或强引用
+
+    @pyqtSlot(float)
+    def on_preview_scrolled(self, percentage):
+        """
+        槽函数：当预览区滚动时（由注入的JS代码通过QWebChannel调用），按比例同步滚动编辑器。
+        """
+        main_window = self._main_window
+        if main_window._is_syncing_scroll: return
+            
+        editor_scrollbar = main_window.markdown_editor.verticalScrollBar()
+        
+        main_window._is_syncing_scroll = True
+        editor_scrollbar.setValue(int(editor_scrollbar.maximum() * percentage))
+        # 使用定时器在短暂延迟后重置标志，以避免两个方向的滚动事件互相锁定
+        QTimer.singleShot(50, lambda: setattr(main_window, '_is_syncing_scroll', False))
+
 class MainWindow(QMainWindow):
     """
     应用程序的主窗口类。
@@ -57,6 +81,9 @@ class MainWindow(QMainWindow):
         y = int((screen_rect.height() - height) / 2)
         self.setGeometry(x, y, width, height)
         self.log = logging.getLogger(__name__)
+        
+        # 实例化滚动处理器，并指定MainWindow实例作为参数
+        self.scroll_handler = ScrollHandler(self, self) # 第一个self是main_window_instance，第二个self是parent
 
         # --- 核心服务实例化 ---
         self.renderer = MarkdownRenderer()
@@ -64,6 +91,8 @@ class MainWindow(QMainWindow):
         self.storage_manager = StorageManager()
         self.wechat_api = WeChatAPI()
         self.template_manager = TemplateManager()
+        self.crawler = Crawler()  # 新增
+        self.llm_processor = LLMProcessor()  # 新增
         
         # --- 状态变量初始化 ---
         self.current_mode = "light"  # 当前UI模式: 'light' 或 'dark'
@@ -74,7 +103,7 @@ class MainWindow(QMainWindow):
         
         # --- 标志位，用于防止UI事件重入或循环触发 ---
         self._is_switching_articles = False  # 正在切换文章的标志，防止在切换过程中触发内容保存
-        self._is_syncing_scroll = False     # 正在同步滚动的标志，防止编辑器和预览区无限循环同步滚动
+        self._is_syncing_scroll = False     # 正在同步滚动的标志，防止编辑器和预览区无限循环同步同步滚动
 
         # --- 后台任务相关状态 ---
         self.crawl_queue = []  # 网页抓取任务队列
@@ -391,17 +420,19 @@ class MainWindow(QMainWindow):
         self._refresh_article_list()
         if self.current_article_index == self.crawling_article_index:
             self._load_article_content(self.crawling_article_index)
-        QApplication.processEvents()
-
-        # 创建并启动后台Worker
+        
+        # 启动后台抓取线程
         self.crawl_thread = QThread()
-        self.crawl_worker = CrawlWorker(url, system_prompt)
+        self.crawl_worker = CrawlWorker(url, system_prompt, self.crawler, self.llm_processor)
         self.crawl_worker.moveToThread(self.crawl_thread)
+        
         self.crawl_worker.progress.connect(self._on_crawl_progress)
         self.crawl_worker.finished.connect(self._on_crawl_finished)
+        
         self.crawl_thread.started.connect(self.crawl_worker.run)
         self.crawl_thread.start()
-        self.log.info("网页抓取后台线程已启动。")
+        
+        QApplication.processEvents()
 
     def _remove_article(self):
         """
@@ -466,7 +497,7 @@ class MainWindow(QMainWindow):
         加载指定索引的文章内容到编辑器和预览区。
         """
         if 0 <= index < len(self.articles):
-            # 暂时阻塞信号，防止 setPlainText 触发 textChanged 信号，导致循环更新
+            # 暂时阻塞信号，防止 setPlainText 发射 textChanged 信号，导致循环更新
             self.markdown_editor.blockSignals(True)
             self.markdown_editor.setPlainText(self.articles[index]['content'])
             self.markdown_editor.blockSignals(False)
@@ -751,21 +782,24 @@ class MainWindow(QMainWindow):
         """
         槽函数：当CrawlWorker发送进度更新时，更新UI。
         """
-        if self.crawling_article_index != -1:
-            article = self.articles[self.crawling_article_index]
-            article['title'] = f"抓取中... {message[:10]}..."
+        if not (0 <= self.crawling_article_index < len(self.articles)):
+            self.log.warning(f"抓取进度更新时，文章索引 {self.crawling_article_index} 无效。可能文章已被删除。")
+            return
             
-            url = self.crawl_worker.url if self.crawl_worker else ""
-            content = f"# 抓取中...\n\n从 {url}\n\n---\n\n{message}"
-            article['content'] = content
+        article = self.articles[self.crawling_article_index]
+        article['title'] = f"抓取中... {message[:10]}..."
+        
+        url = self.crawl_worker.url if self.crawl_worker else "未知URL" # Ensure url is always available
+        content = f"# 抓取中...\n\n从 {url}\n\n" # 保持原始内容，如果LLM处理失败，至少有抓取到的内容
+        article['content'] = content
 
-            self._refresh_article_list()
-            if self.current_article_index == self.crawling_article_index:
-                self.markdown_editor.blockSignals(True)
-                self.markdown_editor.setPlainText(content)
-                self.markdown_editor.blockSignals(False)
-            
-            QApplication.processEvents()
+        self._refresh_article_list()
+        if self.current_article_index == self.crawling_article_index:
+            self.markdown_editor.blockSignals(True)
+            self.markdown_editor.setPlainText(content)
+            self.markdown_editor.blockSignals(False)
+        
+        QApplication.processEvents()
 
     def _on_rewrite_finished(self, success, result):
         """
@@ -797,8 +831,18 @@ class MainWindow(QMainWindow):
         """
         QApplication.beep()
         
-        if self.crawling_article_index == -1:
-            self.log.error("抓取完成，但没有找到对应的文章索引。")
+        if not (0 <= self.crawling_article_index < len(self.articles)):
+            self.log.warning(f"抓取完成时，文章索引 {self.crawling_article_index} 无效。可能文章已被删除。")
+            
+            # 清理当前worker，不处理结果，直接进入下一个任务
+            if self.crawl_thread:
+                self.crawl_thread.quit()
+                self.crawl_thread.wait()
+            self.crawl_worker = None
+            self.crawl_thread = None
+            self.crawling_article_index = -1
+            self.log.info("抓取Worker已清理，但文章已被删除。")
+            self._process_crawl_queue() # 尝试处理队列中的下一个任务
             return
 
         article = self.articles[self.crawling_article_index]
@@ -813,7 +857,12 @@ class MainWindow(QMainWindow):
             # 失败时，result 是一个错误信息字符串
             error_message = result
             title = "抓取失败"
-            final_content = f"# {title}\n\n从 {url} 抓取时发生错误。\n\n**错误详情:**\n```\n{error_message}\n```\n"
+            
+            if "The model is overloaded" in error_message:
+                final_content = f"# {title}\n\n从 {url} 抓取时发生错误：\n\n**AI 服务过载，请稍后再试。**\n\n**错误详情:**\n```\n{error_message}\n```\n"
+            else:
+                final_content = f"# {title}\n\n从 {url} 抓取时发生错误。\n\n**错误详情:**\n```\n{error_message}\n```\n"
+            
             article['title'] = title
             article['content'] = final_content
             self.log.error(f"抓取URL失败: {url}, 错误: {error_message}")
@@ -965,21 +1014,9 @@ class MainWindow(QMainWindow):
         js_code = f"window.scrollTo(0, document.body.scrollHeight * {scroll_percentage});"
         
         self._is_syncing_scroll = True
-        self.html_preview.page().runJavaScript(js_code, lambda: setattr(self, '_is_syncing_scroll', False))
+        # 修改lambda函数以接受一个参数 (例如 _)
+        self.html_preview.page().runJavaScript(js_code, lambda _: setattr(self, '_is_syncing_scroll', False))
 
-    @pyqtSlot(float)
-    def on_preview_scrolled(self, percentage):
-        """
-        槽函数：当预览区滚动时（由注入的JS代码通过QWebChannel调用），按比例同步滚动编辑器。
-        """
-        if self._is_syncing_scroll: return
-            
-        editor_scrollbar = self.markdown_editor.verticalScrollBar()
-        
-        self._is_syncing_scroll = True
-        editor_scrollbar.setValue(int(editor_scrollbar.maximum() * percentage))
-        # 使用定时器在短暂延迟后重置标志，以避免两个方向的滚动事件互相锁定
-        QTimer.singleShot(50, lambda: setattr(self, '_is_syncing_scroll', False))
 
     # --- 亮/暗模式切换 ---
 
@@ -1008,31 +1045,20 @@ class MainWindow(QMainWindow):
         """
         应用当前模式的QSS样式到主窗口和相关控件。
         """
+        # QDarkStyleSheet 已经提供了全面的深色主题。
+        # 这里我们主要处理在“明亮”模式下，文本和预览区域的背景色。
         is_dark = self.current_mode == "dark"
-        bg_color = "#2e2e2e" if is_dark else "#f0f0f0"
-        text_color = "#f0f0f0" if is_dark else "#333"
-        base_bg = "#3e3e3e" if is_dark else "white"
-        selected_bg = "#555" if is_dark else "#e0e0e0"
-        border_color = "#555" if is_dark else "#ccc"
-
-        self.setStyleSheet(f"""
-            QMainWindow {{ background-color: {bg_color}; color: {text_color}; }}
-            QSplitter::handle {{ background-color: {border_color}; }}
-            QListWidget {{ background-color: {base_bg}; color: {text_color}; border: 1px solid {border_color}; }}
-            QListWidget::item:selected {{ background-color: {selected_bg}; }}
-            QPushButton {{ background-color: #444; border: 1px solid #666; padding: 5px; }}
-            QPushButton:hover {{ background-color: #555; }}
-            QLabel {{ color: {text_color}; }}
-            QMenuBar, QMenu {{ background-color: {bg_color}; color: {text_color}; }}
-            QMenuBar::item:selected, QMenu::item:selected {{ background-color: {selected_bg}; }}
-        """)
-        self.markdown_editor.setStyleSheet(f"""
-            QTextEdit {{
-                background-color: {base_bg};
-                color: {text_color};
-                border: 1px solid {border_color};
-            }}
-        """)
+        
+        # 强制Markdown编辑器和预览区在明亮模式下为白色背景
+        if not is_dark:
+            self.markdown_editor.setStyleSheet("QTextEdit { background-color: white; color: black; }")
+            self.html_preview.page().setBackgroundColor(QColor("white")) # 强制预览区背景为白色
+        else:
+            # 恢复QDarkStyleSheet对编辑器的默认样式
+            self.markdown_editor.setStyleSheet("")
+            self.html_preview.page().setBackgroundColor(QColor("transparent")) # 恢复透明，以便CSS生效
+            
+        self._update_preview() # 确保预览区更新以应用正确的HTML背景色
 
 
 class CustomWebEngineView(QWebEngineView):
@@ -1048,8 +1074,8 @@ class CustomWebEngineView(QWebEngineView):
         # 设置 QWebChannel，这是实现JS与Python双向通信的关键
         self.channel = QWebChannel(self.page())
         self.page().setWebChannel(self.channel)
-        # 将父窗口(MainWindow)注册到channel中，并命名为'scroll_handler'，这样JS就可以通过这个名字调用它
-        self.channel.registerObject("scroll_handler", parent)
+        # 将 MainWindow 的 scroll_handler 注册到channel中，而不是整个 MainWindow
+        self.channel.registerObject("scroll_handler", parent.scroll_handler)
 
     def set_html_content(self, html):
         """

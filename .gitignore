@@ -5,6 +5,8 @@ __pycache__/
 
 # Project-specific generated files and sensitive data
 config.yaml
+image_cache.json
+Bug_list.md
 logs/
 data/
 build/

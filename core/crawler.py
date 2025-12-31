@@ -68,9 +68,9 @@ class Crawler:
         try:
             # 发送 POST 请求，设置了120秒的超时
             response = requests.post(
-                self.jina_api_url, 
-                headers=self.headers, 
-                data=json.dumps(payload), 
+                self.jina_api_url,
+                headers=self.headers,
+                data=json.dumps(payload),
                 timeout=120
             )
             # 如果响应状态码是 4xx 或 5xx，则会抛出 HTTPError 异常

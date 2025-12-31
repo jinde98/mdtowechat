@@ -149,11 +149,18 @@ class MarkdownRenderer:
         :param mode: "light" 或 "dark"。
         """
         # 根据模式确定body的背景和前景（文字）颜色
-        body_bg_color = "#ffffff" if mode == "light" else "#2e2e2e"
-        body_text_color = "#333333" if mode == "light" else "#f0f0f0"
+        # 如果当前是light模式，强制背景为白色，文字为深色，以保证预览区域的可读性
+        if mode == "light":
+            body_bg_color = "#ffffff"
+            body_text_color = "#333333"
+        else:
+            # 如果是dark模式，则从主题中获取或使用默认深色
+            body_bg_color = self.theme.get('body_background_color', '#2e2e2e')
+            body_text_color = self.theme.get('body_text_color', '#f0f0f0')
         
         original_body_style = self.theme.get('body', '')
-        soup.body['style'] = f"background-color: {body_bg_color}; color: {body_text_color}; {original_body_style}".strip()
+        # 强制将预览区域的背景设置为白色，以确保在亮色模式下始终可见
+        soup.body['style'] = f"background-color: #ffffff !important; color: {body_text_color}; {original_body_style}".strip()
 
         # 如果主题定义了 'wrapper' 样式，则创建一个div将所有内容包裹起来
         if 'wrapper' in self.theme:

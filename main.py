@@ -5,6 +5,7 @@ import os
 import yaml
 from core.logger import setup_logger
 import logging
+import qdarkstyle # 导入 qdarkstyle 库
 
 def create_default_config(config_path="config.yaml"):
     """
@@ -67,6 +68,10 @@ if __name__ == "__main__":  # 程序的唯一入口点
         default_font = QFont()
         default_font.setPointSize(11)  # 11号字体在大多数屏幕上看起来很舒适
         app.setFont(default_font)
+
+        # 步骤6.1: 应用 QDarkStyleSheet 主题
+        # 这会覆盖部分我们自定义的QSS，但提供了更全面的深色主题
+        app.setStyleSheet(qdarkstyle.load_stylesheet_pyqt5())
 
         # 步骤7: 创建并显示主窗口
         main_window = MainWindow()
