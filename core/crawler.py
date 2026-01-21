@@ -1,8 +1,7 @@
 import requests
 import json
 import logging
-import yaml
-import os
+from .config import ConfigManager
 
 class Crawler:
     """
@@ -17,37 +16,43 @@ class Crawler:
         它会读取配置文件以获取 Jina API Key（如果提供的话）。
         """
         self.log = logging.getLogger("MdToWeChat.Crawler")
-        self.config = self._load_config()
+        self.config_manager = ConfigManager()
         
         # Jina AI Reader API的端点
         self.jina_api_url = 'https://r.jina.ai/'
         
-        # 准备请求头
+        # 加载配置并设置请求头
+        self._load_config_values()
+        self._setup_headers()
+
+    def _load_config_values(self):
+        """
+        从 ConfigManager 加载或重新加载 Crawler 相关的配置值。
+        """
+        self.api_key = self.config_manager.get('jina.api_key')
+
+    def _setup_headers(self):
+        """
+        根据当前配置设置 HTTP 请求头。
+        """
         self.headers = {
             'Content-Type': 'application/json'
         }
         
-        # 尝试从配置中获取Jina API Key并添加到请求头
-        api_key = self.config.get('jina', {}).get('api_key')
-        if api_key:
-            self.headers['Authorization'] = f'Bearer {api_key}'
+        if self.api_key:
+            self.headers['Authorization'] = f'Bearer {self.api_key}'
             self.log.info("已找到并设置 Jina API Key。")
         else:
             self.log.info("未在配置中找到 Jina API Key。将以匿名方式访问，可能会有效率限制。")
 
-    def _load_config(self):
+    def reload_config(self):
         """
-        一个简单的内部方法，用于加载 `config.yaml` 文件。
+        提供一个外部接口，用于在配置更改后（例如，在设置对话框中）刷新实例的配置。
         """
-        config_path = 'config.yaml'
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    return yaml.safe_load(f) or {}
-            except Exception as e:
-                self.log.error(f"加载配置文件 '{config_path}' 时出错: {e}")
-                return {}
-        return {}
+        self.log.info("正在重新加载 Crawler 的配置...")
+        self.config_manager.load()
+        self._load_config_values()
+        self._setup_headers()
 
     def fetch(self, target_url):
         """

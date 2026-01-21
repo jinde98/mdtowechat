@@ -991,11 +991,11 @@ class MainWindow(QMainWindow):
         """
         dialog = SettingsDialog(parent=self)
         if dialog.exec_() == QDialog.Accepted:
-            # 如果用户保存了设置，则重新实例化API客户端以加载新配置
+            # 如果用户保存了设置，则重新加载所有服务的配置
             self.wechat_api.reload_config()
-            # LLMProcessor也需要重新加载
-            # (这个逻辑可以在未来重构，通过一个统一的配置服务来通知所有模块更新)
-            self.log.info("设置已保存，相关服务配置已重新加载。")
+            self.llm_processor.reload_config()
+            self.crawler.reload_config()
+            self.log.info("设置已保存，所有服务配置已重新加载。")
 
     # --- 编辑器与预览区同步滚动 ---
 
