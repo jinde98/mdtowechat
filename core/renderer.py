@@ -3,23 +3,26 @@ import re
 from bs4 import BeautifulSoup
 import os
 import uuid
-from styles import BLUE, NICE, GREEN, GEEK_BLACK, ORANGE_RED, BLUE_GLOW
+from styles import BLUE, NICE, GREEN, GEEK_BLACK, ORANGE_RED, BLUE_GLOW, MINIMALIST_WHITE, DREAMY_PURPLE, BOLD_RED
 
 # 定义主题映射
 THEMES = {
+    "minimalist_white": MINIMALIST_WHITE, # 默认主题放在第一位
     "blue": BLUE,
     "nice": NICE,
     "green": GREEN,
     "geek_black": GEEK_BLACK,
     "orange_red": ORANGE_RED,
     "blue_glow": BLUE_GLOW,
+    "dreamy_purple": DREAMY_PURPLE,
+    "bold_red": BOLD_RED,
 }
 
 class MarkdownRenderer:
     """
     负责将Markdown文本渲染为兼容微信公众号格式的、带有内联样式的HTML。
     """
-    def __init__(self, theme_name="blue_glow"):
+    def __init__(self, theme_name="minimalist_white"):
         """
         初始化渲染器。
         
@@ -71,8 +74,8 @@ class MarkdownRenderer:
         theme = THEMES.get(theme_name.lower())
         if not theme:
             # 使用 logging 模块会更规范，但此处保持与原文一致
-            print(f"警告: 主题 '{theme_name}' 未找到。将使用默认的 'blue' 主题。")
-            theme = BLUE
+            print(f"警告: 主题 '{theme_name}' 未找到。将使用默认的 'minimalist_white' 主题。")
+            theme = MINIMALIST_WHITE
         return theme
 
     def render(self, markdown_text, mode="light"):

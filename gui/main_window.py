@@ -29,6 +29,7 @@ from core.template_manager import TemplateManager
 from gui.status_dialog import StatusDialog
 from gui.settings_dialog import SettingsDialog
 from gui.rewrite_dialog import RewriteDialog
+from gui.themes import Themes # 导入主题
 from PyQt5.QtWidgets import QDialog, QMessageBox
 from core.crawler import Crawler
 from core.llm import LLMProcessor
@@ -105,6 +106,11 @@ class MainWindow(QMainWindow):
         self._is_switching_articles = False  # 正在切换文章的标志，防止在切换过程中触发内容保存
         self._is_syncing_scroll = False     # 正在同步滚动的标志，防止编辑器和预览区无限循环同步同步滚动
 
+        # --- 预览去抖动定时器 ---
+        self.preview_timer = QTimer(self)
+        self.preview_timer.setSingleShot(True)
+        self.preview_timer.timeout.connect(self._update_preview)
+
         # --- 后台任务相关状态 ---
         self.crawl_queue = []  # 网页抓取任务队列
         self.crawl_thread = None
@@ -164,6 +170,7 @@ class MainWindow(QMainWindow):
         ai_section_layout = QVBoxLayout()
         self.crawl_url_input = QLineEdit()
         self.crawl_url_input.setPlaceholderText("在此输入网页URL进行抓取")
+        self.crawl_url_input.returnPressed.connect(self._crawl_article) # 按回车触发抓取
         ai_section_layout.addWidget(self.crawl_url_input)
         crawl_article_btn = QPushButton(" 从网页抓取内容")
         crawl_article_btn.setIcon(QIcon.fromTheme("web-browser"))
@@ -221,10 +228,26 @@ class MainWindow(QMainWindow):
 
         # --- 文件菜单 ---
         file_menu = menu_bar.addMenu("文件")
-        file_menu.addAction("清空所有", self._clear_all_articles)
+        
+        new_action = QAction("新建文章", self)
+        new_action.setShortcut("Ctrl+N")
+        new_action.triggered.connect(self._add_article)
+        file_menu.addAction(new_action)
+        
         file_menu.addAction("打开...", self._open_document)
-        file_menu.addAction("保存", self._save_document)
+        
+        save_action = QAction("保存", self)
+        save_action.setShortcut("Ctrl+S")
+        save_action.triggered.connect(self._save_document)
+        file_menu.addAction(save_action)
+        
         file_menu.addAction("全部保存", self._save_all_documents)
+        file_menu.addSeparator()
+        
+        clear_action = QAction("清空所有", self)
+        clear_action.triggered.connect(self._clear_all_articles)
+        file_menu.addAction(clear_action)
+        
         file_menu.addSeparator()
         file_menu.addAction("退出", self.close)
 
@@ -243,10 +266,27 @@ class MainWindow(QMainWindow):
         theme_menu = menu_bar.addMenu("主题")
         self.theme_group = QActionGroup(self)
         self.theme_group.setExclusive(True) # 确保每次只能选择一个主题
+        
+        # 汉化主题名称映射
+        theme_name_map = {
+            "minimalist_white": "简约白",
+            "default": "默认主题",
+            "blue": "商务蓝",
+            "nice": "优雅风",
+            "green": "清新绿",
+            "geek_black": "极客黑",
+            "orange_red": "暖橙红",
+            "blue_glow": "科技蓝",
+            "dreamy_purple": "梦幻紫",
+            "bold_red": "醒目红"
+        }
+        
         available_themes = self.renderer.get_available_themes()
         for theme_name in available_themes:
-            display_name = theme_name.replace("_", " ").title()
+            # 获取中文名称，如果没有映射则使用原名
+            display_name = theme_name_map.get(theme_name, theme_name.replace("_", " ").title())
             action = QAction(display_name, self, checkable=True)
+            action.setData(theme_name) # 将主题内部ID存储在Action中
             # 使用 functools.partial 来在点击时传递正确的主题名称
             action.triggered.connect(partial(self._change_theme, theme_name))
             self.theme_group.addAction(action)
@@ -312,7 +352,7 @@ class MainWindow(QMainWindow):
         new_article = {
             'title': f'未命名文章 {new_article_num}', 
             'content': f'# 未命名文章 {new_article_num}\n\n', 
-            'theme': 'blue_glow'
+            'theme': 'minimalist_white'
         }
         self.articles.append(new_article)
         
@@ -340,7 +380,7 @@ class MainWindow(QMainWindow):
         self._update_current_article_content()
         placeholder_title = f"排队中 - {url.split('/')[-1]}"
         placeholder_content = f"# 任务已加入队列\n\n等待抓取: {url}"
-        new_article = {'title': placeholder_title, 'content': placeholder_content, 'theme': 'blue_glow'}
+        new_article = {'title': placeholder_title, 'content': placeholder_content, 'theme': 'minimalist_white'}
         
         self.articles.append(new_article)
         new_article_index = len(self.articles) - 1
@@ -447,30 +487,37 @@ class MainWindow(QMainWindow):
         
         # 弹出确认对话框
         confirm_message = (f"确定要删除文章 \"{self.articles[rows_to_delete[0]]['title']}\" 吗？" 
-                           if len(rows_to_delete) == 1 
-                           else f"确定要删除选中的 {len(rows_to_delete)} 篇文章吗？")
-        reply = QMessageBox.question(self, '确认删除', f"{confirm_message}\n此操作不可撤销。",
-                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply != QMessageBox.Yes:
-            return
+                          if len(rows_to_delete) == 1 else 
+                          f"确定要删除选中的 {len(rows_to_delete)} 篇文章吗？")
+        
+        box = QMessageBox(self)
+        box.setWindowTitle("确认删除")
+        box.setText(f"{confirm_message}\n此操作不可撤销。")
+        box.setIcon(QMessageBox.Question)
+        yes_btn = box.addButton("是", QMessageBox.YesRole)
+        box.addButton("否", QMessageBox.NoRole)
+        box.setDefaultButton(QMessageBox.No)
+        box.exec_()
 
-        # 从后往前删除，避免索引因删除操作而错乱
-        for row in rows_to_delete:
-            del self.articles[row]
-
-        # 重新计算并设置当前选中的文章索引
-        if not self.articles:
-            self.current_article_index = -1
-        else:
-            new_index = min(rows_to_delete[-1], len(self.articles) - 1)
-            self.current_article_index = new_index
-
-        self._refresh_article_list()
-
-        if self.current_article_index == -1:
-            self._init_articles() # 如果列表空了，则重置UI
-        else:
-            self._load_article_content(self.current_article_index)
+        if box.clickedButton() == yes_btn:
+            # 倒序删除，防止索引偏移
+            for row in rows_to_delete:
+                self.articles.pop(row)
+            
+            self._refresh_article_list()
+            
+            # 更新当前选中索引
+            if self.articles:
+                self.current_article_index = min(rows_to_delete[-1], len(self.articles) - 1)
+                self.article_list_widget.setCurrentRow(self.current_article_index)
+                self._load_article_content(self.current_article_index)
+            else:
+                self.current_article_index = -1
+                self.markdown_editor.clear()
+                self.html_preview.set_html_content("")
+                self.setWindowTitle("微信公众号Markdown渲染发布系统")
+            
+            self.log.info(f"已删除 {len(rows_to_delete)} 篇文章。")
 
     def _select_article(self, index):
         """
@@ -508,10 +555,14 @@ class MainWindow(QMainWindow):
     def _update_current_article_content(self, refresh_list=True):
         """
         将编辑器中的当前文本内容，同步保存回 `self.articles` 列表中的对应项。
+        使用防抖机制减少预览渲染频率。
         """
         if 0 <= self.current_article_index < len(self.articles):
             self.articles[self.current_article_index]['content'] = self.markdown_editor.toPlainText()
-            self._update_preview()
+            
+            # 使用定时器延迟更新预览 (防抖 500ms)
+            self.preview_timer.start(500)
+            
             # 只有在非文章切换时才刷新列表标题，避免不必要的UI重绘
             if refresh_list and not self._is_switching_articles:
                 self._refresh_article_list()
@@ -546,12 +597,19 @@ class MainWindow(QMainWindow):
         """
         if not self.articles:
             return
-        reply = QMessageBox.question(self, '确认操作', "此操作将清空所有已编辑的文章，确定要继续吗？",
-                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply == QMessageBox.Yes:
+            
+        box = QMessageBox(self)
+        box.setWindowTitle("确认操作")
+        box.setText("此操作将清空所有已编辑的文章，确定要继续吗？")
+        box.setIcon(QMessageBox.Question)
+        yes_btn = box.addButton("是", QMessageBox.YesRole)
+        box.addButton("否", QMessageBox.NoRole)
+        box.setDefaultButton(QMessageBox.No)
+        box.exec_()
+
+        if box.clickedButton() == yes_btn:
             self.log.info("用户选择清空所有文章。")
             self._init_articles() # 调用初始化方法重置所有状态
-
     def _open_document(self):
         """
         响应“打开”菜单项，允许用户打开一个或多个Markdown文件。
@@ -900,6 +958,9 @@ class MainWindow(QMainWindow):
         menu = QMenu()
         move_up_action = QAction("向上移动", self)
         move_down_action = QAction("向下移动", self)
+        
+        duplicate_action = QAction("创建副本", self)
+        rename_action = QAction("重命名", self)
         delete_action = QAction("删除", self)
 
         # 根据项的位置决定是否禁用“上移”或“下移”
@@ -908,13 +969,62 @@ class MainWindow(QMainWindow):
 
         move_up_action.triggered.connect(lambda: self._move_article_up(row))
         move_down_action.triggered.connect(lambda: self._move_article_down(row))
+        duplicate_action.triggered.connect(lambda: self._duplicate_article(row))
+        rename_action.triggered.connect(lambda: self._rename_article_in_list(row))
         delete_action.triggered.connect(self._remove_article)
 
         menu.addAction(move_up_action)
         menu.addAction(move_down_action)
         menu.addSeparator()
+        menu.addAction(duplicate_action)
+        menu.addAction(rename_action)
+        menu.addSeparator()
         menu.addAction(delete_action)
         menu.exec_(self.article_list_widget.mapToGlobal(position))
+
+    def _duplicate_article(self, row):
+        """
+        复制指定索引的文章。
+        """
+        if 0 <= row < len(self.articles):
+            original = self.articles[row]
+            new_article = original.copy()
+            new_article['title'] = f"{original['title']} (副本)"
+            new_article.pop('file_path', None) # 副本不应关联到原文件
+            
+            self.articles.insert(row + 1, new_article)
+            self._refresh_article_list()
+            self.article_list_widget.setCurrentRow(row + 1)
+            self.log.info(f"已创建文章副本: {new_article['title']}")
+
+    def _rename_article_in_list(self, row):
+        """
+        重命名指定索引的文章（仅修改标题元数据，不修改文件）。
+        """
+        if 0 <= row < len(self.articles):
+            article = self.articles[row]
+            item = self.article_list_widget.item(row)
+            
+            # 使用 QInputDialog 获取新标题
+            from PyQt5.QtWidgets import QInputDialog
+            new_title, ok = QInputDialog.getText(self, "重命名文章", "请输入新标题:", text=article['title'])
+            if ok and new_title:
+                article['title'] = new_title
+                # 如果是Markdown内容中的标题不一致，这里选择只更新UI显示的标题
+                # 实际保存时，可能会根据内容重新解析，或者这里也更新内容中的H1？
+                # 为了简单起见，这里仅更新元数据，refresh时会保留这个修改吗？
+                # _refresh_article_list 会重新解析 Markdown 标题覆盖这里。
+                # 所以我们必须同时更新 Markdown 内容中的 H1 (如果存在)
+                
+                # 简单尝试替换第一行如果它是标题
+                lines = article['content'].split('\n')
+                if lines and lines[0].startswith('# '):
+                    lines[0] = f"# {new_title}"
+                    article['content'] = '\n'.join(lines)
+                    if row == self.current_article_index:
+                        self.markdown_editor.setPlainText(article['content'])
+                
+                self._refresh_article_list()
 
     def _move_article_up(self, row):
         """
@@ -979,9 +1089,8 @@ class MainWindow(QMainWindow):
 
         theme_name = self.articles[self.current_article_index].get('theme', 'default')
         for action in self.theme_group.actions():
-            # 从Action的文本反向推断出主题名称
-            action_theme_name = action.text().replace(" ", "_").lower()
-            if action_theme_name == theme_name:
+            # 使用 setData 存储的内部ID进行比较，更加可靠
+            if action.data() == theme_name:
                 action.setChecked(True)
                 break
 
@@ -1036,27 +1145,29 @@ class MainWindow(QMainWindow):
         """
         if self.current_mode == "dark":
             self.mode_toggle_btn.setText("暗黑")
-            self.mode_toggle_btn.setStyleSheet("QPushButton { background-color: #555; color: white; }")
+            # 移除硬编码样式，使用全局主题
+            self.mode_toggle_btn.setStyleSheet("")
         else:
             self.mode_toggle_btn.setText("明亮")
-            self.mode_toggle_btn.setStyleSheet("QPushButton { background-color: #eee; color: black; }")
+            # 移除硬编码样式，使用全局主题
+            self.mode_toggle_btn.setStyleSheet("")
 
     def _apply_mode_styles(self):
         """
         应用当前模式的QSS样式到主窗口和相关控件。
         """
-        # QDarkStyleSheet 已经提供了全面的深色主题。
-        # 这里我们主要处理在“明亮”模式下，文本和预览区域的背景色。
         is_dark = self.current_mode == "dark"
+        app = QApplication.instance()
         
-        # 强制Markdown编辑器和预览区在明亮模式下为白色背景
-        if not is_dark:
-            self.markdown_editor.setStyleSheet("QTextEdit { background-color: white; color: black; }")
-            self.html_preview.page().setBackgroundColor(QColor("white")) # 强制预览区背景为白色
+        if is_dark:
+            app.setStyleSheet(Themes.DARK)
+            self.html_preview.page().setBackgroundColor(QColor("transparent"))
         else:
-            # 恢复QDarkStyleSheet对编辑器的默认样式
-            self.markdown_editor.setStyleSheet("")
-            self.html_preview.page().setBackgroundColor(QColor("transparent")) # 恢复透明，以便CSS生效
+            app.setStyleSheet(Themes.LIGHT)
+            self.html_preview.page().setBackgroundColor(QColor("white"))
+            
+        # 移除之前的局部样式覆盖，让全局主题生效
+        self.markdown_editor.setStyleSheet("")
             
         self._update_preview() # 确保预览区更新以应用正确的HTML背景色
 
@@ -1113,17 +1224,43 @@ class CustomWebEngineView(QWebEngineView):
 
     def contextMenuEvent(self, event):
         """
-        重写右键上下文菜单事件。
+        重写右键上下文菜单事件，并汉化菜单项。
         """
         menu = self.page().createStandardContextMenu()
         
+        # 汉化标准菜单项
+        translation_map = {
+            "Back": "后退",
+            "Forward": "前进",
+            "Reload": "刷新",
+            "Stop": "停止",
+            "Save page as...": "网页另存为...",
+            "View page source": "查看网页源代码",
+            "Inspect": "检查元素",
+            "Copy": "复制",
+            "Select all": "全选",
+            "Copy link address": "复制链接地址",
+            "Copy image": "复制图片",
+            "Copy image address": "复制图片地址",
+            "Save image as...": "图片另存为..."
+        }
+        
+        for action in menu.actions():
+            clean_text = action.text().replace("&", "")
+            for eng, chi in translation_map.items():
+                if clean_text.lower() == eng.lower():
+                    action.setText(chi)
+                    break
+        
         # 在标准菜单的顶部添加我们自己的操作
-        menu.insertSeparator(menu.actions()[0])
-        show_source_action = QAction("显示源代码", self)
+        if menu.actions():
+            menu.insertSeparator(menu.actions()[0])
+            
+        show_source_action = QAction("显示 HTML 源码", self)
         show_source_action.triggered.connect(self.show_source)
         menu.insertAction(menu.actions()[0], show_source_action)
         
-        copy_html_action = QAction("复制渲染后的HTML", self)
+        copy_html_action = QAction("复制渲染后的 HTML", self)
         copy_html_action.triggered.connect(self.copy_html_content)
         menu.insertAction(menu.actions()[0], copy_html_action)
 

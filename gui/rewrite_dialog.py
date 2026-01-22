@@ -49,6 +49,7 @@ class RewriteDialog(QDialog):
         # 4. 标准的OK/Cancel按钮
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.button(QDialogButtonBox.Ok).setText("开始改写")
+        button_box.button(QDialogButtonBox.Cancel).setText("取消")
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)

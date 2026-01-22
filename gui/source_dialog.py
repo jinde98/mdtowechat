@@ -28,5 +28,6 @@ class SourceDialog(QDialog):
 
         # 添加一个标准的 "OK" 按钮来关闭对话框
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok)
+        self.button_box.button(QDialogButtonBox.Ok).setText("确定")
         self.button_box.accepted.connect(self.accept) # 连接 accepted 信号到 accept 槽
         layout.addWidget(self.button_box)

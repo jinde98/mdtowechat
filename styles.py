@@ -128,7 +128,7 @@ GEEK_BLACK = {
     'imageflow-layer2': 'white-space: nowrap; width: 100%; overflow-x: scroll;',
     'imageflow-layer3': 'display: inline-block; word-wrap: break-word; white-space: normal; vertical-align: middle; width: 100%;',
     'imageflow-img': 'display: inline-block; max-width: 100%; height: auto; margin: auto;',
-    'footnotes-sep': 'margin-top: 30px; margin-bottom: 15px; font-weight: bold; color: black; font-size: 20px; margin: 20px auto 5px; border-top: 1px solid rgb(221, 221, 221); box-sizing: border-box;',
+    'footnotes-sep': 'margin-top: 30px; margin-bottom: 15px; font-weight: bold; color: black; font-size: 20px;',
     'footnotes-sep span': 'display: block;',
     'footnote-item': 'display: flex;',
     'footnote-num': 'display: inline; width: 10%; background: none; font-size: 80%; opacity: 0.6; line-height: 26px; font-family: ptima-Regular, Optima, PingFangSC-light, PingFangTC-light, \'PingFang SC\', Cambria, Cochin, Georgia, Times, \'Times New Roman\', serif;',
@@ -212,4 +212,73 @@ BLUE_GLOW = {
     'footnote-item': 'display: flex; align-items: baseline; margin-bottom: 0.5em;',
     'footnote-num': 'flex-shrink: 0; margin-right: 0.5em; font-size: 80%; color: #0077ff;',
     'footnote-item p': 'margin: 0; font-size: 14px; color: #555;',
+}
+
+# 简约白主题 - 极致简洁
+MINIMALIST_WHITE = {
+    'section': 'font-size: 16px; color: #333; padding: 0 20px; line-height: 1.8; text-align: justify; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;',
+    'h1': 'margin: 1.2em 0 0.6em; font-size: 26px; font-weight: 700; color: #000; text-align: center;',
+    'h2': 'margin: 1.5em 0 0.8em; font-size: 22px; font-weight: 600; color: #111; border-bottom: 2px solid #eee; padding-bottom: 10px;',
+    'h3': 'margin: 1.2em 0 0.6em; font-size: 18px; font-weight: 600; color: #222;',
+    'p': 'margin: 0 0 1.2em; color: #444;',
+    'blockquote': 'border-left: 3px solid #ccc; padding: 0.5em 1em; color: #666; background-color: #f9f9f9; margin: 1.5em 0;',
+    'code_inline': 'background-color: #f0f0f0; padding: 2px 5px; border-radius: 3px; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace; font-size: 14px; color: #d63384;',
+    'pre': 'background-color: #f6f8fa; padding: 15px; border-radius: 5px; overflow-x: auto; margin: 1.5em 0; border: 1px solid #e1e4e8;',
+    'code_block': 'font-family: "Fira Code", Menlo, "Operator Mono", Consolas, Monaco, monospace; font-size: 0.9em;',
+    'a': 'color: #0969da; text-decoration: none; border-bottom: 1px solid #0969da;',
+    'ul': 'padding-left: 20px; margin: 0 0 1.2em;',
+    'ol': 'padding-left: 20px; margin: 0 0 1.2em;',
+    'li': 'margin-bottom: 0.5em;',
+    'img': 'display: block; max-width: 100%; height: auto; margin: 1.5em auto; border-radius: 4px;',
+    'strong': 'font-weight: 700; color: #000;',
+    'hr': 'border: 0; border-top: 1px solid #eee; margin: 2em 0;',
+    'table': 'width: 100%; border-collapse: collapse; margin: 1.5em 0;',
+    'th': 'border: 1px solid #dfe2e5; padding: 8px 12px; background-color: #f6f8fa; font-weight: 600;',
+    'td': 'border: 1px solid #dfe2e5; padding: 8px 12px;',
+}
+
+# 梦幻紫主题 - 柔和浪漫
+DREAMY_PURPLE = {
+    'section': 'font-size: 15px; color: #4a4a4a; padding: 0 25px; line-height: 1.7; text-align: justify; font-family: \'PingFang SC\', \'Microsoft YaHei\', sans-serif;',
+    'h1': 'margin: 1.2em 0 0.8em; font-size: 24px; font-weight: bold; color: #6f42c1; text-align: center; border-bottom: 1px dashed #d0bfff; padding-bottom: 10px;',
+    'h2': 'margin: 1.5em 0 1em; font-size: 20px; font-weight: bold; color: #fff; background: linear-gradient(90deg, #9b59b6, #8e44ad); padding: 5px 15px; border-radius: 20px 0 20px 0; display: inline-block;',
+    'h3': 'margin: 1.2em 0 0.8em; font-size: 18px; font-weight: bold; color: #8e44ad; border-left: 4px solid #9b59b6; padding-left: 10px;',
+    'p': 'margin: 0 0 1em; color: #555;',
+    'blockquote': 'border-left: 4px solid #9b59b6; background-color: #f3e5f5; padding: 10px 15px; color: #6a1b9a; border-radius: 0 5px 5px 0; margin: 1.5em 0;',
+    'code_inline': 'background-color: #f3e5f5; color: #8e44ad; padding: 2px 4px; border-radius: 3px; font-family: Consolas, monospace;',
+    'pre': 'background-color: #282c34; color: #abb2bf; padding: 1em; border-radius: 8px; margin: 1.5em 0; overflow-x: auto;',
+    'code_block': 'font-family: "Fira Code", Menlo, "Operator Mono", Consolas, Monaco, monospace; font-size: 0.9em;',
+    'a': 'color: #9b59b6; text-decoration: none; border-bottom: 1px dashed #9b59b6;',
+    'ul': 'padding-left: 20px; margin: 1em 0;',
+    'ol': 'padding-left: 20px; margin: 1em 0;',
+    'li': 'margin-bottom: 0.5em;',
+    'img': 'display: block; max-width: 100%; height: auto; margin: 1.5em auto; border-radius: 10px; box-shadow: 0 4px 15px rgba(155, 89, 182, 0.2);',
+    'strong': 'color: #8e44ad; font-weight: bold;',
+    'hr': 'border: 0; height: 1px; background: linear-gradient(to right, rgba(155, 89, 182, 0), rgba(155, 89, 182, 0.75), rgba(155, 89, 182, 0)); margin: 2em 0;',
+    'table': 'width: 100%; border-collapse: collapse; margin: 1.5em 0; box-shadow: 0 0 10px rgba(0,0,0,0.05);',
+    'th': 'background-color: #9b59b6; color: white; padding: 10px; border: 1px solid #8e44ad;',
+    'td': 'padding: 10px; border: 1px solid #e1bee7; color: #4a4a4a;',
+}
+
+# 醒目红主题 - 强调重点
+BOLD_RED = {
+    'section': 'font-size: 16px; color: #2c3e50; padding: 0 25px; line-height: 1.6; text-align: justify; font-family: \'Helvetica Neue\', Helvetica, Arial, sans-serif;',
+    'h1': 'margin: 1em 0; font-size: 28px; font-weight: 800; color: #c0392b; text-align: center; text-transform: uppercase; letter-spacing: 1px;',
+    'h2': 'margin: 1.5em 0 1em; font-size: 22px; font-weight: 700; color: #c0392b; border-bottom: 3px solid #c0392b; display: inline-block; padding-bottom: 5px;',
+    'h3': 'margin: 1.2em 0 0.8em; font-size: 19px; font-weight: 700; color: #e74c3c; padding-left: 10px; border-left: 5px solid #c0392b;',
+    'p': 'margin: 0 0 1.2em;',
+    'blockquote': 'border-top: 2px solid #e74c3c; border-bottom: 2px solid #e74c3c; background-color: #f9ebea; padding: 15px; color: #c0392b; margin: 1.5em 0; font-style: italic;',
+    'code_inline': 'background-color: #fce4ec; color: #c0392b; padding: 2px 5px; border-radius: 3px;',
+    'pre': 'background-color: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 4px; margin: 1.5em 0; overflow-x: auto; border-left: 5px solid #c0392b;',
+    'code_block': 'font-family: "Fira Code", Menlo, "Operator Mono", Consolas, Monaco, monospace; font-size: 0.9em;',
+    'a': 'color: #c0392b; font-weight: bold; text-decoration: underline;',
+    'ul': 'list-style: none; padding: 0; margin: 1.5em 0;',
+    'ol': 'padding-left: 20px; margin: 1.5em 0;',
+    'li': 'margin-bottom: 0.8em; position: relative; padding-left: 1.5em;', # 手动处理列表符号在 renderer 中会更好，这里仅作为 fallback
+    'img': 'display: block; max-width: 100%; height: auto; margin: 1.5em auto; border: 2px solid #e74c3c; padding: 5px;',
+    'strong': 'color: #c0392b; font-weight: 900;',
+    'hr': 'border: 0; border-top: 4px double #c0392b; margin: 2em 0;',
+    'table': 'width: 100%; border-collapse: collapse; margin: 1.5em 0;',
+    'th': 'background-color: #c0392b; color: #fff; padding: 10px; border: 1px solid #922b21;',
+    'td': 'padding: 10px; border: 1px solid #e6b0aa;',
 }

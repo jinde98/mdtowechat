@@ -84,6 +84,57 @@ class PastingImageEditor(QTextEdit):
         thread.start()
         self.log.info(f"已为图片 {temp_path} 启动后台上传线程。")
 
+    def contextMenuEvent(self, event):
+        """
+        自定义右键菜单，添加Markdown格式化选项并确保菜单为中文。
+        """
+        menu = self.createStandardContextMenu()
+        
+        # 汉化标准菜单项
+        translation_map = {
+            "Undo": "撤销",
+            "Redo": "重做",
+            "Cut": "剪切",
+            "Copy": "复制",
+            "Paste": "粘贴",
+            "Delete": "删除",
+            "Select All": "全选"
+        }
+        
+        for action in menu.actions():
+            # 移除快捷键提示部分进行匹配
+            clean_text = action.text().replace("&", "")
+            for eng, chi in translation_map.items():
+                if clean_text.startswith(eng):
+                    action.setText(chi)
+                    break
+
+        menu.addSeparator()
+        
+        bold_action = menu.addAction("加粗 (**B**)")
+        bold_action.triggered.connect(lambda: self._format_text("**", "**"))
+        
+        italic_action = menu.addAction("斜体 (*I*)")
+        italic_action.triggered.connect(lambda: self._format_text("*", "*"))
+        
+        code_action = menu.addAction("代码 (`C`)")
+        code_action.triggered.connect(lambda: self._format_text("`", "`"))
+        
+        menu.exec_(event.globalPos())
+
+    def _format_text(self, prefix, suffix):
+        """
+        辅助方法：包裹选中的文本。
+        """
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            text = cursor.selectedText()
+            cursor.insertText(f"{prefix}{text}{suffix}")
+        else:
+            cursor.insertText(f"{prefix}{suffix}")
+            cursor.movePosition(QTextCursor.Left, QTextCursor.MoveAnchor, len(suffix))
+            self.setTextCursor(cursor)
+
     def _on_image_upload_finished(self, success, original_path, result):
         """
         槽函数：当图片上传完成后被调用。
