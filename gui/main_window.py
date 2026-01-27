@@ -30,6 +30,7 @@ from gui.status_dialog import StatusDialog
 from gui.settings_dialog import SettingsDialog
 from gui.rewrite_dialog import RewriteDialog
 from gui.themes import Themes # 导入主题
+from gui.find_replace_dialog import FindReplaceDialog
 from PyQt5.QtWidgets import QDialog, QMessageBox
 from core.crawler import Crawler
 from core.llm import LLMProcessor
@@ -120,6 +121,9 @@ class MainWindow(QMainWindow):
         self.rewrite_thread = None
         self.rewrite_worker = None
         self.is_rewriting = False  # AI改写任务是否正在进行的标志
+        
+        # 查找替换对话框
+        self.find_replace_dialog = None
 
         # --- UI构建和初始化 ---
         self._init_ui()
@@ -258,6 +262,12 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(undo_action)
         edit_menu.addAction(redo_action)
         edit_menu.addSeparator()
+        
+        find_replace_action = QAction("查找 / 替换...", self, shortcut="Ctrl+F")
+        find_replace_action.triggered.connect(self._show_find_replace_dialog)
+        edit_menu.addAction(find_replace_action)
+        
+        edit_menu.addSeparator()
         edit_menu.addAction("AI 改写文章...", self._rewrite_article)
         edit_menu.addSeparator()
         edit_menu.addAction("设置...", self._open_settings_dialog)
@@ -292,6 +302,44 @@ class MainWindow(QMainWindow):
             self.theme_group.addAction(action)
             theme_menu.addAction(action)
 
+        # --- 格式菜单 (新增) ---
+        format_menu = menu_bar.addMenu("格式")
+        
+        # 标题子菜单
+        header_menu = format_menu.addMenu("标题")
+        for i in range(1, 7):
+            action = QAction(f"{i} 级标题", self)
+            action.setShortcut(f"Ctrl+{i}")
+            action.triggered.connect(partial(self.markdown_editor.insert_header, i))
+            header_menu.addAction(action)
+            
+        format_menu.addSeparator()
+        
+        bold_action = QAction("加粗", self, shortcut="Ctrl+B", triggered=self.markdown_editor.toggle_bold)
+        format_menu.addAction(bold_action)
+        
+        italic_action = QAction("斜体", self, shortcut="Ctrl+I", triggered=self.markdown_editor.toggle_italic)
+        format_menu.addAction(italic_action)
+        
+        quote_action = QAction("引用", self, shortcut="Ctrl+Shift+Q", triggered=self.markdown_editor.insert_quote)
+        format_menu.addAction(quote_action)
+        
+        code_action = QAction("代码块", self, shortcut="Ctrl+Shift+K", triggered=self.markdown_editor.insert_code_block)
+        format_menu.addAction(code_action)
+        
+        link_action = QAction("插入链接", self, shortcut="Ctrl+K", triggered=self.markdown_editor.insert_link)
+        format_menu.addAction(link_action)
+        
+        table_action = QAction("插入表格", self, triggered=self.markdown_editor.insert_table)
+        format_menu.addAction(table_action)
+        
+        format_menu.addSeparator()
+        
+        word_wrap_action = QAction("自动换行", self, checkable=True)
+        word_wrap_action.setChecked(True) # 默认开启自动换行 (QTextEdit 默认就是 WidgetWidth)
+        word_wrap_action.triggered.connect(self.markdown_editor.toggle_word_wrap)
+        format_menu.addAction(word_wrap_action)
+
         # --- 发布菜单 ---
         publish_menu = menu_bar.addMenu("发布")
         publish_menu.addAction("发布到微信公众号", self._publish_to_wechat)
@@ -308,6 +356,17 @@ class MainWindow(QMainWindow):
         # --- 帮助菜单 ---
         help_menu = menu_bar.addMenu("帮助")
         help_menu.addAction("关于", self._show_about_dialog)
+
+    def _show_find_replace_dialog(self):
+        """
+        显示查找和替换对话框。
+        """
+        if self.find_replace_dialog is None:
+            self.find_replace_dialog = FindReplaceDialog(self.markdown_editor, self)
+        
+        self.find_replace_dialog.show()
+        self.find_replace_dialog.raise_()
+        self.find_replace_dialog.activateWindow()
 
     def _init_articles(self):
         """
@@ -588,7 +647,8 @@ class MainWindow(QMainWindow):
         else:
             full_markdown_content = markdown_content
             
-        html_content = self.renderer.render(full_markdown_content, mode=self.current_mode)
+        # 在预览模式下，启用微信特有标签的转换（例如将公众号名片转为div）
+        html_content = self.renderer.render(full_markdown_content, mode=self.current_mode, for_preview=True)
         self.html_preview.set_html_content(html_content)
 
     def _clear_all_articles(self):

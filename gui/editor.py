@@ -1,10 +1,11 @@
 import os, logging
 import uuid
 from PyQt5.QtWidgets import QTextEdit, QApplication
-from PyQt5.QtGui import QImage, QTextCursor
+from PyQt5.QtGui import QImage, QTextCursor, QFont
 
 from PyQt5.QtCore import QThread
 from core.workers import ImageUploadWorker
+from gui.highlighter import MarkdownHighlighter
 import logging
 
 class PastingImageEditor(QTextEdit):
@@ -13,6 +14,8 @@ class PastingImageEditor(QTextEdit):
 
     它重写了Qt的粘贴机制，实现了当用户从剪贴板粘贴图片时，
     能够以**异步**的方式将图片上传到微信服务器，并用返回的URL替换占位符。
+    
+    它也是一个纯文本 Markdown 编辑器，支持语法高亮。
     """
     def __init__(self, wechat_api, parent=None):
         super().__init__(parent)
@@ -20,6 +23,21 @@ class PastingImageEditor(QTextEdit):
         self.log = logging.getLogger(__name__)
         # 使用一个字典来存储正在进行的上传任务，以防止线程和worker被垃圾回收
         self.upload_tasks = {}
+        
+        # --- 纯文本编辑增强 ---
+        # 1. 禁用富文本输入 (这会过滤掉粘贴时的 HTML 格式)
+        self.setAcceptRichText(False)
+        
+        # 2. 设置等宽字体 (编程/Markdown 标配)
+        font = self.font()
+        font.setFamily("Consolas") 
+        if font.family() != "Consolas": # Fallback
+             font.setStyleHint(QFont.Monospace)
+        font.setPointSize(11)
+        self.setFont(font)
+        
+        # 3. 应用 Markdown 语法高亮
+        self.highlighter = MarkdownHighlighter(self.document())
 
     def canInsertFromMimeData(self, source):
         """
@@ -36,8 +54,11 @@ class PastingImageEditor(QTextEdit):
         if source.hasImage():
             # 如果剪贴板中包含图片数据，则调用我们自定义的异步图片处理流程。
             self.paste_image_async(source.imageData())
+        elif source.hasText():
+            # 强制纯文本粘贴，再次确保移除所有格式
+            self.insertPlainText(source.text())
         else:
-            # 如果是纯文本，则执行父类的默认粘贴行为。
+            # 其他情况（如文件），尝试默认处理
             super().insertFromMimeData(source)
 
     def paste_image_async(self, image: QImage):
@@ -112,17 +133,17 @@ class PastingImageEditor(QTextEdit):
         menu.addSeparator()
         
         bold_action = menu.addAction("加粗 (**B**)")
-        bold_action.triggered.connect(lambda: self._format_text("**", "**"))
+        bold_action.triggered.connect(self.toggle_bold)
         
         italic_action = menu.addAction("斜体 (*I*)")
-        italic_action.triggered.connect(lambda: self._format_text("*", "*"))
+        italic_action.triggered.connect(self.toggle_italic)
         
         code_action = menu.addAction("代码 (`C`)")
-        code_action.triggered.connect(lambda: self._format_text("`", "`"))
+        code_action.triggered.connect(lambda: self.format_text("`", "`"))
         
         menu.exec_(event.globalPos())
 
-    def _format_text(self, prefix, suffix):
+    def format_text(self, prefix, suffix):
         """
         辅助方法：包裹选中的文本。
         """
@@ -134,6 +155,113 @@ class PastingImageEditor(QTextEdit):
             cursor.insertText(f"{prefix}{suffix}")
             cursor.movePosition(QTextCursor.Left, QTextCursor.MoveAnchor, len(suffix))
             self.setTextCursor(cursor)
+
+    # --- Markdown 快捷功能 ---
+
+    def toggle_bold(self):
+        self.format_text("**", "**")
+
+    def toggle_italic(self):
+        self.format_text("*", "*")
+
+    def insert_code_block(self):
+        """
+        插入代码块。
+        """
+        cursor = self.textCursor()
+        # 检查是否在一行的开头，如果不是，先换行
+        if cursor.positionInBlock() > 0:
+            cursor.insertText("\n")
+        
+        cursor.insertText("```\n\n```")
+        cursor.movePosition(QTextCursor.Up)
+        self.setTextCursor(cursor)
+
+    def insert_link(self):
+        """
+        插入链接 [text](url)。
+        """
+        self.format_text("[", "](url)")
+        # 选中 'url' 以便用户直接输入
+        cursor = self.textCursor()
+        cursor.movePosition(QTextCursor.Left, QTextCursor.KeepAnchor, 4) # 选中 'url)'
+        cursor.movePosition(QTextCursor.Left, QTextCursor.KeepAnchor, 1) # 选中 'url'
+        # 上面的移动逻辑有点复杂，简化为：插入后光标在 ) 前面
+        # 重新实现：
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            text = cursor.selectedText()
+            cursor.insertText(f"[{text}](url)")
+            # 选中 url
+            cursor.movePosition(QTextCursor.Left, QTextCursor.MoveAnchor, 1)
+            cursor.movePosition(QTextCursor.Left, QTextCursor.KeepAnchor, 3)
+            self.setTextCursor(cursor)
+        else:
+            cursor.insertText("[text](url)")
+            # 选中 text
+            cursor.movePosition(QTextCursor.Left, QTextCursor.MoveAnchor, 6) # 回到 [ 后
+            cursor.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 4) # 选中 text
+            self.setTextCursor(cursor)
+
+    def insert_quote(self):
+        """
+        插入引用。
+        """
+        cursor = self.textCursor()
+        # 移动到行首
+        cursor.movePosition(QTextCursor.StartOfBlock)
+        cursor.insertText("> ")
+        self.setTextCursor(cursor)
+
+    def insert_header(self, level):
+        """
+        插入标题 (H1-H6)。
+        """
+        if not 1 <= level <= 6:
+            return
+            
+        cursor = self.textCursor()
+        cursor.beginEditBlock()
+        
+        # 移动到行首
+        cursor.movePosition(QTextCursor.StartOfBlock)
+        # 选中当前行首可能的标题标记
+        cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+        text = cursor.selectedText()
+        
+        import re
+        # 如果已经有标题标记，先移除
+        text = re.sub(r'^#+\s*', '', text)
+        
+        # 插入新的标题标记
+        new_text = f"{'#' * level} {text}"
+        cursor.insertText(new_text)
+        
+        cursor.endEditBlock()
+
+    def insert_table(self, rows=3, cols=3):
+        """
+        插入 Markdown 表格模板。
+        """
+        header = "| " + " | ".join(["标题"] * cols) + " |\n"
+        separator = "| " + " | ".join(["---"] * cols) + " |\n"
+        row_str = "| " + " | ".join(["内容"] * cols) + " |\n"
+        
+        table_text = "\n" + header + separator + (row_str * rows) + "\n"
+        
+        cursor = self.textCursor()
+        cursor.insertText(table_text)
+
+    def toggle_word_wrap(self):
+        """
+        切换自动换行。
+        """
+        if self.lineWrapMode() == QTextEdit.NoWrap:
+            self.setLineWrapMode(QTextEdit.WidgetWidth)
+            return True
+        else:
+            self.setLineWrapMode(QTextEdit.NoWrap)
+            return False
 
     def _on_image_upload_finished(self, success, original_path, result):
         """

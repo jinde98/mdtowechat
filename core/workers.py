@@ -107,7 +107,8 @@ class PublishWorker(QObject):
 
                 # 步骤 2: 渲染Markdown为HTML
                 self.renderer.set_theme(article_data.get('theme', 'default'))
-                html_content = self.renderer.render(full_markdown_content, mode=self.current_mode)
+                # 关键修改：发布时 for_preview=False，保留微信原生标签（如公众号名片），不转换为div
+                html_content = self.renderer.render(full_markdown_content, mode=self.current_mode, for_preview=False)
                 
                 # 步骤 3: 生成文章摘要
                 digest = article_data.get('digest', '')
